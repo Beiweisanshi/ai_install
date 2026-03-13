@@ -1,0 +1,146 @@
+{
+  "detect_after": [
+    {
+      "available_version": "0.111.0",
+      "current_version": "0.111.0",
+      "installable": true,
+      "installed": true,
+      "name": "Nushell",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "2.53.0",
+      "current_version": "2.53.0",
+      "installable": true,
+      "installed": true,
+      "name": "Git",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "24.14.0",
+      "current_version": "24.14.0",
+      "installable": true,
+      "installed": true,
+      "name": "Node.js",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "2.1.72",
+      "current_version": "2.1.72",
+      "installable": true,
+      "installed": true,
+      "name": "Claude CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "0.112.0",
+      "current_version": "0.112.0",
+      "installable": true,
+      "installed": true,
+      "name": "Codex CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "0.32.1",
+      "current_version": "0.32.1",
+      "installable": true,
+      "installed": true,
+      "name": "Gemini CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "3.11.1",
+      "current_version": null,
+      "installable": true,
+      "installed": true,
+      "name": "CC-Switch",
+      "unavailable_reason": null,
+      "upgradable": false
+    }
+  ],
+  "detect_before": [
+    {
+      "available_version": "0.111.0",
+      "current_version": "0.111.0",
+      "installable": true,
+      "installed": true,
+      "name": "Nushell",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "2.53.0",
+      "current_version": "2.53.0",
+      "installable": true,
+      "installed": true,
+      "name": "Git",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "24.14.0",
+      "current_version": "24.14.0",
+      "installable": true,
+      "installed": true,
+      "name": "Node.js",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "2.1.72",
+      "current_version": "2.1.72",
+      "installable": true,
+      "installed": true,
+      "name": "Claude CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "0.112.0",
+      "current_version": "0.112.0",
+      "installable": true,
+      "installed": true,
+      "name": "Codex CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "0.32.1",
+      "current_version": null,
+      "installable": true,
+      "installed": false,
+      "name": "Gemini CLI",
+      "unavailable_reason": null,
+      "upgradable": false
+    },
+    {
+      "available_version": "3.11.1",
+      "current_version": null,
+      "installable": true,
+      "installed": true,
+      "name": "CC-Switch",
+      "unavailable_reason": null,
+      "upgradable": false
+    }
+  ],
+  "install": {
+    "Ok": [
+      {
+        "duration_ms": 523,
+        "message": "Nushell already installed",
+        "name": "Nushell",
+        "success": true,
+        "version": "0.111.0"
+      }
+    ]
+  },
+  "requested_tools": [
+    "Nushell"
+  ]
+}

@@ -1,0 +1,26 @@
+# Rust build artifacts
+gui-installer/src-tauri/target/
+
+# Node.js
+gui-installer/node_modules/
+gui-installer/dist/
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment
+.env
+*.local
+
+# Packages (large binary files, distributed separately)
+packages/
+
+# Claude Code local config
+.claude/
+
+# Vitest build artifacts
+gui-installer/.vitest-build/
+
+# Temp files
+_tmp_*
