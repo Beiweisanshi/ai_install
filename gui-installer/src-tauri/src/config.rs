@@ -1,12 +1,14 @@
 use crate::types::{ConfigEntry, InstallerError};
-use std::fs;
-use std::path::PathBuf;
 
-use serde_json::{Map, Value};
+#[cfg(target_os = "macos")]
+use std::fs;
+#[cfg(target_os = "macos")]
+use std::path::PathBuf;
 
 #[cfg(target_os = "windows")]
 use crate::installer::windows::hidden_command;
 
+#[cfg(target_os = "macos")]
 const MANAGED_BLOCK_MARKER: &str = "# --- AI Tools Installer managed ---";
 
 pub fn validate_config_entry(entry: &ConfigEntry) -> Result<(), InstallerError> {
@@ -109,7 +111,12 @@ pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError>
         validate_config_entry(&entry)?;
 
         match entry.tool_name.as_str() {
-            "CC-Switch" => save_cc_switch_config(&entry)?,
+            "Claude CLI" => {
+                let api_key = required_field(&entry.api_key, "api_key", &entry.tool_name)?;
+                let api_url = required_field(&entry.api_url, "api_url", &entry.tool_name)?;
+                save_env_config("ANTHROPIC_API_KEY", api_key)?;
+                save_env_config("ANTHROPIC_BASE_URL", api_url)?;
+            }
             "Codex" | "Codex CLI" => {
                 let api_key = required_field(&entry.api_key, "api_key", &entry.tool_name)?;
                 let api_url = required_field(&entry.api_url, "api_url", &entry.tool_name)?;
@@ -128,94 +135,6 @@ pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError>
             }
         }
     }
-
-    Ok(())
-}
-
-pub fn save_cc_switch_config(entry: &ConfigEntry) -> Result<(), InstallerError> {
-    let config_path = cc_switch_config_path()?;
-    let parent_dir = config_path
-        .parent()
-        .ok_or_else(|| InstallerError::ConfigFailed {
-            detail: format!(
-                "cc-switch config path has no parent: {}",
-                config_path.display()
-            ),
-            user_message: "Failed to save configuration".to_string(),
-        })?;
-
-    fs::create_dir_all(parent_dir).map_err(|error| InstallerError::ConfigFailed {
-        detail: format!(
-            "failed to create config directory {}: {error}",
-            parent_dir.display()
-        ),
-        user_message: "Failed to save configuration".to_string(),
-    })?;
-
-    let mut root = if config_path.exists() {
-        let content =
-            fs::read_to_string(&config_path).map_err(|error| InstallerError::ConfigFailed {
-                detail: format!(
-                    "failed to read cc-switch config {}: {error}",
-                    config_path.display()
-                ),
-                user_message: "Failed to save configuration".to_string(),
-            })?;
-
-        if content.trim().is_empty() {
-            Value::Object(Map::new())
-        } else {
-            serde_json::from_str::<Value>(&content).map_err(|error| {
-                InstallerError::ConfigFailed {
-                    detail: format!(
-                        "failed to parse cc-switch config {}: {error}",
-                        config_path.display()
-                    ),
-                    user_message: "Failed to save configuration".to_string(),
-                }
-            })?
-        }
-    } else {
-        Value::Object(Map::new())
-    };
-
-    let object = root
-        .as_object_mut()
-        .ok_or_else(|| InstallerError::ConfigFailed {
-            detail: format!(
-                "cc-switch config root is not a JSON object: {}",
-                config_path.display()
-            ),
-            user_message: "Failed to save configuration".to_string(),
-        })?;
-
-    object.insert(
-        "api_url".to_string(),
-        Value::String(required_field(&entry.api_url, "api_url", &entry.tool_name)?.to_string()),
-    );
-    object.insert(
-        "api_key".to_string(),
-        Value::String(required_field(&entry.api_key, "api_key", &entry.tool_name)?.to_string()),
-    );
-
-    let serialized =
-        serde_json::to_string_pretty(&root).map_err(|error| InstallerError::ConfigFailed {
-            detail: format!(
-                "failed to serialize cc-switch config {}: {error}",
-                config_path.display()
-            ),
-            user_message: "Failed to save configuration".to_string(),
-        })?;
-
-    fs::write(&config_path, format!("{serialized}\n")).map_err(|error| {
-        InstallerError::ConfigFailed {
-            detail: format!(
-                "failed to write cc-switch config {}: {error}",
-                config_path.display()
-            ),
-            user_message: "Failed to save configuration".to_string(),
-        }
-    })?;
 
     Ok(())
 }
@@ -332,32 +251,6 @@ mod tests {
     }
 }
 
-fn cc_switch_config_path() -> Result<PathBuf, InstallerError> {
-    #[cfg(target_os = "windows")]
-    {
-        let appdata = std::env::var_os("APPDATA").ok_or_else(|| InstallerError::ConfigFailed {
-            detail: "APPDATA is not set".to_string(),
-            user_message: "Failed to save configuration".to_string(),
-        })?;
-        return Ok(PathBuf::from(appdata).join("cc-switch").join("config.json"));
-    }
-
-    #[cfg(target_os = "macos")]
-    {
-        return Ok(home_dir()?
-            .join(".config")
-            .join("cc-switch")
-            .join("config.json"));
-    }
-
-    #[cfg(not(any(target_os = "windows", target_os = "macos")))]
-    {
-        Err(InstallerError::ConfigFailed {
-            detail: "cc-switch config is only supported on Windows and macOS".to_string(),
-            user_message: "Failed to save configuration".to_string(),
-        })
-    }
-}
 
 #[cfg(target_os = "macos")]
 fn shell_profile_path() -> Result<PathBuf, InstallerError> {

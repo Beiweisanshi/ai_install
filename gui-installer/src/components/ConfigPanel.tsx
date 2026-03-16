@@ -19,8 +19,8 @@ interface FieldErrors {
   api_key?: string;
 }
 
-const CONFIGURABLE_TOOLS = ["CC-Switch", "Codex", "Codex CLI", "Gemini", "Gemini CLI"];
-const KEY_ONLY_TOOLS = ["Gemini", "Gemini CLI"];
+const CONFIGURABLE_TOOLS = ["Claude CLI", "Codex", "Codex CLI", "Gemini", "Gemini CLI"];
+const KEY_ONLY_TOOLS: string[] = [];
 const SHELL_META_PATTERN = /[;&|`$<>]/;
 
 function needsConfig(toolName: string) {
@@ -30,17 +30,11 @@ function needsConfig(toolName: string) {
 function validateUrl(url: string) {
   const value = url.trim();
 
-  if (!value) {
-    return "请输入 API URL";
-  }
-
-  if (value.length > 2048) {
-    return "URL 长度不能超过 2048 个字符";
-  }
+  if (!value) return "请输入 API URL";
+  if (value.length > 2048) return "URL 长度不能超过 2048 个字符";
 
   try {
     const parsed = new URL(value);
-
     if (parsed.protocol !== "http:" && parsed.protocol !== "https:") {
       return "URL 必须以 http:// 或 https:// 开头";
     }
@@ -54,32 +48,62 @@ function validateUrl(url: string) {
 function validateKey(key: string) {
   const value = key.trim();
 
-  if (!value) {
-    return "请输入 API Key";
-  }
-
-  if (value.length > 256) {
-    return "API Key 长度不能超过 256 个字符";
-  }
-
-  if (SHELL_META_PATTERN.test(value)) {
-    return "API Key 不能包含 shell 元字符";
-  }
+  if (!value) return "请输入 API Key";
+  if (value.length > 256) return "API Key 长度不能超过 256 个字符";
+  if (SHELL_META_PATTERN.test(value)) return "API Key 不能包含 shell 元字符";
 
   return undefined;
+}
+
+function InputField({
+  label,
+  type = "text",
+  placeholder,
+  value,
+  error,
+  onChange,
+}: {
+  label: string;
+  type?: string;
+  placeholder: string;
+  value: string;
+  error?: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div>
+      <label
+        className="mb-1.5 block text-xs font-medium"
+        style={{ color: theme.textSecondary }}
+      >
+        {label}
+      </label>
+      <input
+        className="w-full rounded-lg border px-3 py-2.5 text-sm outline-none transition-colors duration-150"
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        style={{
+          background: theme.bgPrimary,
+          borderColor: error ? theme.error : theme.border,
+          color: theme.textPrimary,
+        }}
+        type={type}
+        value={value}
+      />
+      {error && (
+        <p className="mt-1 text-xs" style={{ color: theme.error }}>
+          {error}
+        </p>
+      )}
+    </div>
+  );
 }
 
 function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
   const configurableTools = useMemo(() => tools.filter(needsConfig), [tools]);
   const [form, setForm] = useState<Record<string, ConfigFormState>>(() =>
     Object.fromEntries(
-      configurableTools.map((tool) => [
-        tool,
-        {
-          api_url: "",
-          api_key: "",
-        },
-      ]),
+      configurableTools.map((tool) => [tool, { api_url: "", api_key: "" }]),
     ),
   );
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
@@ -87,18 +111,11 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
   const updateField = (tool: string, field: keyof ConfigFormState, value: string) => {
     setForm((current) => ({
       ...current,
-      [tool]: {
-        ...(current[tool] ?? { api_url: "", api_key: "" }),
-        [field]: value,
-      },
+      [tool]: { ...(current[tool] ?? { api_url: "", api_key: "" }), [field]: value },
     }));
-
     setErrors((current) => ({
       ...current,
-      [tool]: {
-        ...current[tool],
-        [field]: undefined,
-      },
+      [tool]: { ...current[tool], [field]: undefined },
     }));
   };
 
@@ -111,10 +128,7 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
       const apiKeyError = validateKey(toolForm.api_key);
 
       if (apiUrlError || apiKeyError) {
-        nextErrors[tool] = {
-          api_key: apiKeyError,
-          api_url: apiUrlError,
-        };
+        nextErrors[tool] = { api_key: apiKeyError, api_url: apiUrlError };
       }
 
       return {
@@ -125,42 +139,34 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
     });
 
     setErrors(nextErrors);
-
-    if (Object.keys(nextErrors).length > 0) {
-      return;
-    }
-
+    if (Object.keys(nextErrors).length > 0) return;
     onSave(entries);
   };
 
   return (
-    <section className="flex h-full flex-col gap-5">
-      <div
-        className="rounded-2xl border p-5"
-        style={{
-          background: theme.card,
-          borderColor: theme.cardBorder,
-          borderRadius: theme.radius,
-        }}
-      >
-        <h2 className="text-2xl font-semibold text-white">配置 API 凭据</h2>
-        <p className="mt-2 text-sm" style={{ color: theme.textSecondary }}>
-          仅为需要凭据的工具填写配置，不会写入 localStorage。
+    <section className="flex h-full flex-col gap-4">
+      {/* Header */}
+      <div>
+        <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
+          配置 API 凭据
+        </h1>
+        <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
+          为需要凭据的工具填写配置信息
         </p>
       </div>
 
-      <div className="flex-1 space-y-4 overflow-y-auto pr-1">
+      {/* Form cards */}
+      <div className="flex-1 space-y-3 overflow-y-auto pr-1">
         {configurableTools.length === 0 ? (
           <div
-            className="rounded-2xl border p-6 text-sm"
+            className="flex items-center justify-center rounded-xl border py-12"
             style={{
-              background: theme.card,
+              background: theme.bgSecondary,
               borderColor: theme.cardBorder,
-              borderRadius: theme.radius,
-              color: theme.textSecondary,
+              color: theme.textMuted,
             }}
           >
-            当前未选择需要配置的工具。
+            <p className="text-sm">无需配置的工具，可直接跳过</p>
           </div>
         ) : (
           configurableTools.map((tool) => {
@@ -169,62 +175,40 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
 
             return (
               <div
-                className="rounded-2xl border p-5"
+                className="rounded-xl border p-4"
                 key={tool}
                 style={{
-                  background: theme.card,
+                  background: theme.bgSecondary,
                   borderColor: theme.cardBorder,
-                  borderRadius: theme.radius,
+                  boxShadow: theme.cardShadow,
                 }}
               >
-                <h3 className="text-lg font-semibold text-white">{tool}</h3>
+                <h3
+                  className="text-sm font-semibold"
+                  style={{ color: theme.textPrimary }}
+                >
+                  {tool}
+                </h3>
 
-                <div className="mt-4 grid gap-4">
+                <div className="mt-3 grid gap-3">
                   {!KEY_ONLY_TOOLS.includes(tool) && (
-                  <div>
-                    <label className="mb-2 block text-sm font-medium" style={{ color: theme.textSecondary }}>
-                      API URL
-                    </label>
-                    <input
-                      className="w-full rounded-xl border px-4 py-3 text-sm text-white outline-none transition focus:border-white/30"
-                      onChange={(event) => updateField(tool, "api_url", event.target.value)}
-                      placeholder="https://api.example.com"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        borderColor: toolErrors.api_url ? theme.error : theme.cardBorder,
-                      }}
+                    <InputField
+                      label="API URL"
                       type="url"
+                      placeholder="https://api.example.com"
                       value={toolForm.api_url}
+                      error={toolErrors.api_url}
+                      onChange={(v) => updateField(tool, "api_url", v)}
                     />
-                    {toolErrors.api_url ? (
-                      <p className="mt-2 text-xs" style={{ color: theme.error }}>
-                        {toolErrors.api_url}
-                      </p>
-                    ) : null}
-                  </div>
                   )}
-
-                  <div>
-                    <label className="mb-2 block text-sm font-medium" style={{ color: theme.textSecondary }}>
-                      API Key
-                    </label>
-                    <input
-                      className="w-full rounded-xl border px-4 py-3 text-sm text-white outline-none transition focus:border-white/30"
-                      onChange={(event) => updateField(tool, "api_key", event.target.value)}
-                      placeholder="请输入 API Key"
-                      style={{
-                        background: "rgba(255,255,255,0.04)",
-                        borderColor: toolErrors.api_key ? theme.error : theme.cardBorder,
-                      }}
-                      type="password"
-                      value={toolForm.api_key}
-                    />
-                    {toolErrors.api_key ? (
-                      <p className="mt-2 text-xs" style={{ color: theme.error }}>
-                        {toolErrors.api_key}
-                      </p>
-                    ) : null}
-                  </div>
+                  <InputField
+                    label="API Key"
+                    type="password"
+                    placeholder="输入 API Key"
+                    value={toolForm.api_key}
+                    error={toolErrors.api_key}
+                    onChange={(v) => updateField(tool, "api_key", v)}
+                  />
                 </div>
               </div>
             );
@@ -232,23 +216,24 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
         )}
       </div>
 
-      <div className="flex items-center justify-end gap-3">
+      {/* Actions */}
+      <div className="flex items-center justify-end gap-2 pt-2">
         <button
-          className="rounded-full border px-4 py-2.5 text-sm font-medium transition duration-200 hover:-translate-y-0.5 hover:border-white/25 hover:bg-white/8"
+          className="rounded-full px-5 py-2 text-sm font-medium transition-colors duration-150"
           onClick={onSkip}
-          style={{
-            background: theme.card,
-            borderColor: theme.cardBorder,
-            color: theme.textSecondary,
-          }}
+          style={{ color: theme.textSecondary }}
           type="button"
         >
           跳过
         </button>
         <button
-          className="rounded-full px-5 py-2.5 text-sm font-semibold text-white transition duration-200 hover:-translate-y-0.5 hover:brightness-110"
+          className="rounded-full px-6 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-px"
           onClick={handleSave}
-          style={{ background: theme.accent }}
+          style={{
+            background: theme.accent,
+            color: theme.textOnAccent,
+            boxShadow: "0 2px 8px rgba(196,112,75,0.3)",
+          }}
           type="button"
         >
           保存配置

@@ -6,12 +6,50 @@ body {
   margin: 0;
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
-  background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
-  color: #fff;
+  -moz-osx-font-smoothing: grayscale;
+  background: #F7F5F0;
+  color: #1A1A1A;
   overflow: hidden;
 }
 
 * { box-sizing: border-box; }
-::-webkit-scrollbar { width: 6px; }
+
+/* Scrollbar — minimal, warm gray */
+::-webkit-scrollbar { width: 4px; }
 ::-webkit-scrollbar-track { background: transparent; }
-::-webkit-scrollbar-thumb { background: rgba(255,255,255,0.2); border-radius: 3px; }
+::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: rgba(0,0,0,0.18); }
+
+/* Selection — warm accent */
+::selection {
+  background: rgba(196,112,75,0.15);
+  color: inherit;
+}
+
+/* Focus ring for accessibility */
+:focus-visible {
+  outline: 2px solid rgba(196,112,75,0.5);
+  outline-offset: 2px;
+}
+
+/* Input focus override */
+input:focus-visible {
+  outline: none;
+  border-color: #C4704B !important;
+  box-shadow: 0 0 0 3px rgba(196,112,75,0.12);
+}
+
+/* Button active state */
+button:active:not(:disabled) {
+  transform: scale(0.98);
+}
+
+/* Smooth loading pulse */
+@keyframes gentle-pulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.6; }
+}
+
+.animate-gentle-pulse {
+  animation: gentle-pulse 2s ease-in-out infinite;
+}

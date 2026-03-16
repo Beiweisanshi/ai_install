@@ -22,47 +22,15 @@ interface ToolCardProps {
   progress?: number;
 }
 
-const statusStyleMap: Record<ToolStatus, { label: string; color: string; background: string }> = {
-  not_installed: {
-    label: "未安装",
-    color: theme.textMuted,
-    background: "rgba(255,255,255,0.08)",
-  },
-  installed: {
-    label: "已安装",
-    color: theme.success,
-    background: "rgba(76,175,80,0.16)",
-  },
-  upgradable: {
-    label: "可升级",
-    color: theme.accent,
-    background: "rgba(232,123,53,0.16)",
-  },
-  unavailable: {
-    label: "不可用",
-    color: theme.error,
-    background: "rgba(244,67,54,0.16)",
-  },
-  installing: {
-    label: "安装中",
-    color: theme.accent,
-    background: "rgba(232,123,53,0.16)",
-  },
-  success: {
-    label: "成功",
-    color: theme.success,
-    background: "rgba(76,175,80,0.16)",
-  },
-  failed: {
-    label: "失败",
-    color: theme.error,
-    background: "rgba(244,67,54,0.16)",
-  },
-  skipped: {
-    label: "已跳过",
-    color: theme.textMuted,
-    background: "rgba(255,255,255,0.08)",
-  },
+const statusConfig: Record<ToolStatus, { label: string; color: string; bg: string }> = {
+  not_installed: { label: "未安装", color: theme.textMuted, bg: theme.bgTertiary },
+  installed: { label: "已安装", color: theme.success, bg: theme.successLight },
+  upgradable: { label: "可升级", color: theme.accent, bg: theme.accentLight },
+  unavailable: { label: "不可用", color: theme.error, bg: theme.errorLight },
+  installing: { label: "安装中", color: theme.accent, bg: theme.accentLight },
+  success: { label: "成功", color: theme.success, bg: theme.successLight },
+  failed: { label: "失败", color: theme.error, bg: theme.errorLight },
+  skipped: { label: "已跳过", color: theme.textMuted, bg: theme.bgTertiary },
 };
 
 function getVersionText(
@@ -71,29 +39,20 @@ function getVersionText(
   availableVersion?: string,
   detailText?: string,
 ) {
-  if (detailText) {
-    return detailText;
-  }
+  if (detailText) return detailText;
 
   const isInstalled = status === "installed" || status === "upgradable";
 
   if (currentVersion && availableVersion) {
     if (currentVersion === availableVersion) {
-      return `当前版本 ${currentVersion}（已是最新）`;
+      return `${currentVersion}（最新）`;
     }
-
-    return `当前版本 ${currentVersion} → 最新版本 ${availableVersion}`;
+    return `${currentVersion} → ${availableVersion}`;
   }
 
-  if (currentVersion) {
-    return `当前版本 ${currentVersion}`;
-  }
-
-  if (availableVersion) {
-    return isInstalled ? `最新版本 ${availableVersion}` : `可安装版本 ${availableVersion}`;
-  }
-
-  return "未检测到版本信息";
+  if (currentVersion) return currentVersion;
+  if (availableVersion) return isInstalled ? availableVersion : `可安装 ${availableVersion}`;
+  return "—";
 }
 
 function ToolCard({
@@ -107,72 +66,90 @@ function ToolCard({
   onToggle,
   progress,
 }: ToolCardProps) {
-  const statusStyle = statusStyleMap[status];
+  const cfg = statusConfig[status];
   const percent = Math.max(0, Math.min(100, progress ?? 0));
 
   return (
     <label
-      className={`block rounded-xl border p-4 shadow-[0_8px_30px_rgba(0,0,0,0.12)] transition duration-200 ${
+      className={`block rounded-xl border transition-all duration-200 ${
         disabled
-          ? "cursor-not-allowed opacity-70"
-          : "cursor-pointer hover:-translate-y-0.5 hover:border-white/20"
+          ? "cursor-not-allowed opacity-50"
+          : "cursor-pointer hover:shadow-md"
       }`}
       style={{
-        background: theme.card,
-        borderColor: theme.cardBorder,
-        borderRadius: theme.radius,
+        background: checked && !disabled ? theme.card : theme.bgSecondary,
+        borderColor: checked && !disabled ? theme.accent : theme.cardBorder,
+        boxShadow: checked && !disabled ? theme.cardShadowHover : theme.cardShadow,
       }}
     >
-      <div className="flex items-start gap-4">
-        <input
-          checked={checked}
-          className={`mt-1 h-4 w-4 shrink-0 ${disabled ? "cursor-not-allowed" : "cursor-pointer"}`}
-          disabled={disabled}
-          onChange={onToggle}
-          style={{ accentColor: theme.accent }}
-          type="checkbox"
-        />
+      <div className="flex items-center gap-3.5 px-4 py-3.5">
+        {/* Custom checkbox */}
+        <div className="relative flex shrink-0 items-center">
+          <input
+            checked={checked}
+            className="peer sr-only"
+            disabled={disabled}
+            onChange={onToggle}
+            type="checkbox"
+          />
+          <div
+            className="flex h-[18px] w-[18px] items-center justify-center rounded-[5px] border-[1.5px] transition-all duration-150"
+            style={{
+              background: checked ? theme.accent : "transparent",
+              borderColor: checked ? theme.accent : theme.border,
+            }}
+          >
+            {checked && (
+              <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2">
+                <path d="M2.5 6L5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
+              </svg>
+            )}
+          </div>
+        </div>
 
+        {/* Content */}
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
-              <h3 className="truncate text-base font-semibold text-white">{name}</h3>
-              <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
+              <h3 className="truncate text-sm font-semibold" style={{ color: theme.textPrimary }}>
+                {name}
+              </h3>
+              <p className="mt-0.5 truncate text-xs" style={{ color: theme.textMuted }}>
                 {getVersionText(status, currentVersion, availableVersion, detailText)}
               </p>
             </div>
 
             <span
-              className="inline-flex shrink-0 items-center rounded-full px-3 py-1 text-xs font-medium"
-              style={{
-                background: statusStyle.background,
-                color: statusStyle.color,
-              }}
+              className="inline-flex shrink-0 items-center rounded-full px-2.5 py-0.5 text-[11px] font-medium"
+              style={{ background: cfg.bg, color: cfg.color }}
             >
-              {statusStyle.label}
+              {cfg.label}
             </span>
           </div>
-
-          {status === "installing" ? (
-            <div className="mt-4">
-              <div className="mb-2 flex items-center justify-between text-xs" style={{ color: theme.textMuted }}>
-                <span>安装进度</span>
-                <span>{percent}%</span>
-              </div>
-              <div className="h-2 w-full overflow-hidden rounded-full bg-white/10">
-                <div
-                  className="h-full rounded-full"
-                  style={{
-                    background: `linear-gradient(90deg, ${theme.accent} 0%, #f5a76b 100%)`,
-                    transition: "width 0.5s ease-out",
-                    width: `${percent}%`,
-                  }}
-                />
-              </div>
-            </div>
-          ) : null}
         </div>
       </div>
+
+      {/* Progress bar */}
+      {status === "installing" && (
+        <div className="px-4 pb-3">
+          <div className="flex items-center justify-between text-[10px] mb-1" style={{ color: theme.textMuted }}>
+            <span>安装中</span>
+            <span>{percent}%</span>
+          </div>
+          <div
+            className="h-1 w-full overflow-hidden rounded-full"
+            style={{ background: theme.bgTertiary }}
+          >
+            <div
+              className="h-full rounded-full transition-[width] duration-500 ease-out"
+              style={{
+                background: theme.accent,
+                width: `${percent}%`,
+              }}
+            />
+          </div>
+        </div>
+      )}
     </label>
   );
 }

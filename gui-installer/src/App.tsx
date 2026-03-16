@@ -4,16 +4,23 @@ import Summary from "./components/Summary";
 import ToolList from "./components/ToolList";
 import { useInstaller } from "./hooks/useInstaller";
 import { useSmoothedProgress } from "./hooks/useSmoothedProgress";
+import { theme } from "./styles/theme";
 
 function App() {
   const installer = useInstaller();
   const smoothedProgress = useSmoothedProgress(installer.progress);
 
   return (
-    <Layout appVersionInfo={installer.appVersionInfo}>
+    <Layout appVersionInfo={installer.appVersionInfo} phase={installer.phase}>
       {installer.phase === "detecting" && (
         <div className="flex h-full items-center justify-center">
-          <p style={{ color: "rgba(255,255,255,0.7)" }}>正在检测已安装工具...</p>
+          <div className="flex flex-col items-center gap-3">
+            <div
+              className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
+              style={{ color: theme.accent }}
+            />
+            <p className="text-sm" style={{ color: theme.textSecondary }}>正在检测已安装工具...</p>
+          </div>
         </div>
       )}
 
