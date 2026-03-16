@@ -16,6 +16,9 @@ Thumbs.db
 # Packages (large binary files, distributed separately)
 packages/
 
+# Release zip archives
+*.zip
+
 # Claude Code local config
 .claude/
 
