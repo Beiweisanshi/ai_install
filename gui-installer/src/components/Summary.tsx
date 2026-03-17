@@ -168,8 +168,11 @@ function Summary({ results, tools }: SummaryProps) {
 
                 {result.message && (
                   <span
-                    className="max-w-[200px] truncate text-xs"
-                    style={{ color: theme.textMuted }}
+                    className="max-w-[360px] text-xs leading-tight"
+                    style={{
+                      color: result.success ? theme.textMuted : theme.error,
+                      wordBreak: "break-word",
+                    }}
                     title={result.message}
                   >
                     {result.message}

@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::Instant;
 
-use glob::glob;
+use glob::Pattern;
 use tauri::AppHandle;
 use tokio::time::{Duration, sleep};
 
@@ -91,6 +91,7 @@ impl ToolInstaller for GitInstallerWin {
 
             let package = find_package(&windows_packages_dir()?, "Git-*-64-bit.exe")?;
             verify_package_hash(&package)?;
+            unblock_file(&package);
 
             let status =
                 run_elevated(&package, &["/VERYSILENT", "/NORESTART"]).map_err(|error| {
@@ -237,6 +238,7 @@ impl ToolInstaller for CCSwitchInstallerWin {
             };
 
             verify_package_hash(&package)?;
+            unblock_file(&package);
 
             let status = if extension_is(&package, "msi") {
                 run_msi_elevated(&package, &["/qn", "/norestart"]).map_err(|error| {
@@ -297,23 +299,33 @@ pub fn refresh_path_win() -> Result<(), InstallerError> {
 }
 
 pub fn find_package(dir: &Path, pattern: &str) -> Result<PathBuf, InstallerError> {
-    let glob_pattern = dir.join(pattern).to_string_lossy().replace('\\', "/");
-    let mut matches = Vec::new();
-
-    let entries = glob(&glob_pattern).map_err(|error| InstallerError::PackageNotFound {
-        detail: format!("invalid glob pattern {glob_pattern}: {error}"),
+    // Use read_dir + Pattern::matches instead of glob() to avoid
+    // glob special-character interpretation in directory paths.
+    // Only the filename is matched against the pattern.
+    let compiled = Pattern::new(pattern).map_err(|error| InstallerError::PackageNotFound {
+        detail: format!("invalid pattern {pattern}: {error}"),
         user_message: format!("Package not found: {pattern}"),
     })?;
 
+    let entries = std::fs::read_dir(dir).map_err(|error| InstallerError::PackageNotFound {
+        detail: format!("failed to read directory {}: {error}", dir.display()),
+        user_message: format!("Package not found: {pattern}"),
+    })?;
+
+    let mut matches = Vec::new();
     for entry in entries {
-        match entry {
-            Ok(path) if path.is_file() => matches.push(path),
-            Ok(_) => {}
-            Err(error) => {
-                return Err(InstallerError::PackageNotFound {
-                    detail: format!("failed to traverse glob pattern {glob_pattern}: {error}"),
-                    user_message: format!("Package not found: {pattern}"),
-                });
+        let entry = match entry {
+            Ok(e) => e,
+            Err(_) => continue,
+        };
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        if compiled.matches(name) {
+            let path = entry.path();
+            if path.is_file() {
+                matches.push(path);
             }
         }
     }
@@ -351,10 +363,10 @@ pub fn run_elevated(exe: &Path, args: &[&str]) -> io::Result<ExitStatus> {
         "$process = Start-Process -FilePath '{exe_arg}'{argument_list} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     );
 
-    // Do NOT use hidden_command / CREATE_NO_WINDOW here.
-    // -Verb RunAs requires a visible process to trigger the UAC prompt;
-    // CREATE_NO_WINDOW suppresses it, causing silent failure on fresh machines.
-    Command::new("powershell")
+    // Use full path to powershell.exe to avoid PATH dependency on fresh machines.
+    // Do NOT use hidden_command / CREATE_NO_WINDOW here — -Verb RunAs needs a
+    // visible process so the OS can show the UAC consent dialog.
+    Command::new(resolve_powershell_path())
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
@@ -362,7 +374,26 @@ pub fn run_elevated(exe: &Path, args: &[&str]) -> io::Result<ExitStatus> {
         .status()
 }
 
+fn resolve_powershell_path() -> PathBuf {
+    if let Some(system_root) = env::var_os("SystemRoot") {
+        let full = PathBuf::from(system_root)
+            .join("System32")
+            .join("WindowsPowerShell")
+            .join("v1.0")
+            .join("powershell.exe");
+        if full.is_file() {
+            return full;
+        }
+    }
+    // Fallback: rely on PATH
+    PathBuf::from("powershell.exe")
+}
+
 fn run_msi_elevated(package: &Path, extra_args: &[&str]) -> io::Result<ExitStatus> {
+    // Remove Zone.Identifier ADS that Windows attaches to files extracted from
+    // downloaded zips.  Without this, msiexec may silently refuse to run the MSI.
+    unblock_file(package);
+
     // Wrap the MSI path in double quotes and normalise to backslashes so
     // msiexec can parse it correctly even when the path contains non-ASCII
     // characters (e.g. Chinese directory names) or spaces.
@@ -373,6 +404,13 @@ fn run_msi_elevated(package: &Path, extra_args: &[&str]) -> io::Result<ExitStatu
     args.extend(extra_args);
 
     run_elevated(Path::new("msiexec.exe"), &args)
+}
+
+/// Remove the Zone.Identifier alternate data stream that Windows attaches to
+/// files downloaded from the internet (or extracted from a downloaded archive).
+fn unblock_file(path: &Path) {
+    let ads_path = format!("{}:Zone.Identifier", path.to_string_lossy());
+    let _ = std::fs::remove_file(ads_path);
 }
 
 pub fn hidden_command(program: impl AsRef<OsStr>) -> Command {

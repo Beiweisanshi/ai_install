@@ -157,7 +157,20 @@ pub fn locate_packages_dir() -> Result<PathBuf, InstallerError> {
         user_message: "Failed to locate installer executable".to_string(),
     })?;
 
+    // On Windows, current_exe() may return an extended-length path (\\?\C:\...)
+    // which breaks path operations and directory listing.  Strip the prefix.
+    let current_exe = strip_extended_length_prefix(&current_exe);
+
     locate_packages_dir_from_exe(&current_exe)
+}
+
+fn strip_extended_length_prefix(path: &Path) -> PathBuf {
+    let s = path.to_string_lossy();
+    if let Some(stripped) = s.strip_prefix(r"\\?\") {
+        PathBuf::from(stripped)
+    } else {
+        path.to_path_buf()
+    }
 }
 
 fn locate_packages_dir_from_exe(current_exe: &Path) -> Result<PathBuf, InstallerError> {
