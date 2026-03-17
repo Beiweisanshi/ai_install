@@ -139,11 +139,16 @@ async fn npm_install(pkg: &str) -> Result<(), InstallerError> {
 
     #[cfg(target_os = "windows")]
     let mut child = {
-        tokio::process::Command::new("cmd.exe")
-            .arg("/c")
-            .arg(format!(
-                "npm install -g {pkg}@latest --registry {NPM_REGISTRY}"
-            ))
+        // Resolve npm.cmd absolute path instead of relying on cmd.exe's PATH,
+        // which may not include the newly-installed Node.js directory.
+        let npm_cmd = resolve_npm_cmd()
+            .ok_or_else(|| install_failed(pkg, "npm.cmd not found in PATH or known locations".to_string()))?;
+        tokio::process::Command::new(npm_cmd)
+            .arg("install")
+            .arg("-g")
+            .arg(format!("{pkg}@latest"))
+            .arg("--registry")
+            .arg(NPM_REGISTRY)
             .stdout(std::process::Stdio::piped())
             .stderr(std::process::Stdio::piped())
             .creation_flags(CREATE_NO_WINDOW)
@@ -326,6 +331,40 @@ fn install_failed(target: &str, detail: impl Into<String>) -> InstallerError {
         user_message: format!("{target} installation failed"),
         detail,
     }
+}
+
+#[cfg(target_os = "windows")]
+fn resolve_npm_cmd() -> Option<std::path::PathBuf> {
+    use std::path::PathBuf;
+
+    refresh_command_path();
+
+    // Check known install locations first
+    if let Some(app_data) = std::env::var_os("APPDATA") {
+        let npm_cmd = PathBuf::from(app_data).join("npm").join("npm.cmd");
+        if npm_cmd.is_file() {
+            return Some(npm_cmd);
+        }
+    }
+    if let Some(program_files) = std::env::var_os("ProgramFiles") {
+        let npm_cmd = PathBuf::from(program_files)
+            .join("nodejs")
+            .join("npm.cmd");
+        if npm_cmd.is_file() {
+            return Some(npm_cmd);
+        }
+    }
+
+    // Fallback: search current PATH
+    let path_var = std::env::var_os("PATH")?;
+    for dir in std::env::split_paths(&path_var) {
+        let candidate = dir.join("npm.cmd");
+        if candidate.is_file() {
+            return Some(candidate);
+        }
+    }
+
+    None
 }
 
 #[cfg(test)]

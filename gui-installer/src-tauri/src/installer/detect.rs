@@ -5,7 +5,7 @@ use std::process::{Output, Stdio};
 use std::thread;
 use std::time::{Duration, Instant};
 
-use glob::glob;
+use glob::Pattern;
 use regex::Regex;
 use semver::Version;
 
@@ -58,18 +58,21 @@ pub fn get_available_version_from_packages(tool_name: &str, packages_dir: &Path)
 
     for search_dir in package_search_dirs(packages_dir) {
         for pattern in patterns {
-            let glob_pattern = search_dir
-                .join(pattern)
-                .to_string_lossy()
-                .replace('\\', "/");
-            let Ok(entries) = glob(&glob_pattern) else {
+            let Ok(compiled) = Pattern::new(pattern) else {
+                continue;
+            };
+            let Ok(entries) = std::fs::read_dir(&search_dir) else {
                 continue;
             };
 
             for entry in entries.flatten() {
-                let Some(filename) = entry.file_name().and_then(|value| value.to_str()) else {
+                let file_name = entry.file_name();
+                let Some(filename) = file_name.to_str() else {
                     continue;
                 };
+                if !compiled.matches(filename) {
+                    continue;
+                }
 
                 let Some(version) = parse_version_from_filename(filename) else {
                     continue;
@@ -312,9 +315,15 @@ fn cc_switch_installed() -> bool {
     }
 
     if cfg!(target_os = "macos") {
-        return glob("/Applications/*[Cc][Cc]*[Ss]witch*.app")
-            .ok()
-            .is_some_and(|entries| entries.flatten().any(|path| path.exists()));
+        let pattern = Pattern::new("*[Cc][Cc]*[Ss]witch*.app");
+        if let (Ok(compiled), Ok(entries)) = (pattern, std::fs::read_dir("/Applications")) {
+            return entries.flatten().any(|entry| {
+                entry
+                    .file_name()
+                    .to_str()
+                    .is_some_and(|name| compiled.matches(name))
+            });
+        }
     }
 
     false

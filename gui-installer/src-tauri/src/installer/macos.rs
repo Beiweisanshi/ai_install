@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::process::{Command, ExitStatus};
 use std::time::{SystemTime, UNIX_EPOCH};
 
-use glob::glob;
+use glob::Pattern;
 use tauri::AppHandle;
 
 use super::{BoxFuture, ToolInstaller, locate_packages_dir, verify_package_hash};
@@ -494,24 +494,24 @@ fn find_package_from_patterns(dir: &Path, patterns: &[&str]) -> Result<PathBuf, 
 }
 
 fn find_glob_match(dir: &Path, pattern: &str) -> Result<PathBuf, InstallerError> {
-    let glob_pattern = dir.join(pattern).to_string_lossy().replace('\\', "/");
-    let mut matches = Vec::new();
-
-    let entries = glob(&glob_pattern).map_err(|error| InstallerError::PackageNotFound {
-        detail: format!("invalid glob pattern {glob_pattern}: {error}"),
+    let compiled = Pattern::new(pattern).map_err(|error| InstallerError::PackageNotFound {
+        detail: format!("invalid pattern {pattern}: {error}"),
         user_message: format!("Package not found: {pattern}"),
     })?;
 
-    for entry in entries {
-        match entry {
-            Ok(path) if path.exists() => matches.push(path),
-            Ok(_) => {}
-            Err(error) => {
-                return Err(InstallerError::PackageNotFound {
-                    detail: format!("failed to traverse glob pattern {glob_pattern}: {error}"),
-                    user_message: format!("Package not found: {pattern}"),
-                });
-            }
+    let entries = std::fs::read_dir(dir).map_err(|error| InstallerError::PackageNotFound {
+        detail: format!("failed to read directory {}: {error}", dir.display()),
+        user_message: format!("Package not found: {pattern}"),
+    })?;
+
+    let mut matches = Vec::new();
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        if compiled.matches(name) && entry.path().exists() {
+            matches.push(entry.path());
         }
     }
 
@@ -532,9 +532,15 @@ fn find_glob_match(dir: &Path, pattern: &str) -> Result<PathBuf, InstallerError>
 }
 
 fn cc_switch_app_path() -> Option<PathBuf> {
-    let entries = glob("/Applications/*[Cc][Cc]*[Ss]witch*.app").ok()?;
-    for entry in entries {
-        if let Ok(path) = entry {
+    let compiled = Pattern::new("*[Cc][Cc]*[Ss]witch*.app").ok()?;
+    let entries = std::fs::read_dir("/Applications").ok()?;
+    for entry in entries.flatten() {
+        let file_name = entry.file_name();
+        let Some(name) = file_name.to_str() else {
+            continue;
+        };
+        if compiled.matches(name) {
+            let path = entry.path();
             if path.exists() {
                 return Some(path);
             }
