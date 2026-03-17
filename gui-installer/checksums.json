@@ -1,3 +1,8 @@
 {
-  "nushell-0.111.0-x86_64-pc-windows-msvc.msi": "5db6396c280b51acd2b66892e49e48a3f55016bd7314bb80d8c3d1f88dc57487"
+  "nushell-0.111.0-x86_64-pc-windows-msvc.msi": "5db6396c280b51acd2b66892e49e48a3f55016bd7314bb80d8c3d1f88dc57487",
+  "Git-2.53.0-64-bit.exe": "3b4e1b127dbebea2931f2ae9dfafa0c2343a488a1222009debfe78d5d335e6a9",
+  "node-v24.14.0-x64.msi": "e75802e82be6875b03b63377a9e12e4416799d0fb6dd460f0605d29144d386a6",
+  "CC-Switch-v3.11.1-Windows.msi": "7f7a85dd6f7553a1c8bdfab55ec2ae0f8c0b9b897874ebcef7304982453085bd",
+  "node-v24.14.0.pkg": "5514f833980f172088ce22883000d1aea9db9eea41cb1a306154eb4f333ec1c0",
+  "CC-Switch-v3.11.1-macOS.tar.gz": "242bfddeb63632ead29b404fe827b5ec0dd28c13559899328351fa8ac59e1946"
 }

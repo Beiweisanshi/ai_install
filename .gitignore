@@ -19,6 +19,10 @@ packages/
 # Release zip archives
 *.zip
 
+# Build output binaries (distributed separately)
+dist/*.exe
+dist/*.dll
+
 # Claude Code local config
 .claude/
 

@@ -12,6 +12,14 @@ import type {
 
 type Phase = "detecting" | "selecting" | "installing" | "configuring" | "summary";
 
+const CONFIGURABLE_TOOLS = ["Claude CLI", "Codex", "Codex CLI", "Gemini", "Gemini CLI"];
+
+function hasConfigurableSuccess(results: InstallResult[]): boolean {
+  return results.some(
+    (r) => r.success && CONFIGURABLE_TOOLS.some((name) => r.name.includes(name)),
+  );
+}
+
 export function useInstaller() {
   const [phase, setPhase] = useState<Phase>("detecting");
   const [tools, setTools] = useState<DetectResult[]>([]);
@@ -85,10 +93,12 @@ export function useInstaller() {
         // Non-critical: summary still works with stale detect data
       }
 
-      setPhase("configuring");
+      // Only show config phase if there are successfully installed tools that
+      // need API credentials.  Otherwise skip straight to summary.
+      setPhase(hasConfigurableSuccess(installResults) ? "configuring" : "summary");
     } catch (e) {
       setError(String(e));
-      setPhase("configuring");
+      setPhase("summary");
     }
   }, [selected]);
 

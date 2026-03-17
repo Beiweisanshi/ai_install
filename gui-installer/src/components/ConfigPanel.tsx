@@ -107,6 +107,7 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
     ),
   );
   const [errors, setErrors] = useState<Record<string, FieldErrors>>({});
+  const [saving, setSaving] = useState(false);
 
   const updateField = (tool: string, field: keyof ConfigFormState, value: string) => {
     setForm((current) => ({
@@ -140,6 +141,7 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
 
     setErrors(nextErrors);
     if (Object.keys(nextErrors).length > 0) return;
+    setSaving(true);
     onSave(entries);
   };
 
@@ -220,6 +222,7 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
       <div className="flex items-center justify-end gap-2 pt-2">
         <button
           className="rounded-full px-5 py-2 text-sm font-medium transition-colors duration-150"
+          disabled={saving}
           onClick={onSkip}
           style={{ color: theme.textSecondary }}
           type="button"
@@ -227,7 +230,8 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
           跳过
         </button>
         <button
-          className="rounded-full px-6 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-px"
+          className="rounded-full px-6 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-px disabled:opacity-60"
+          disabled={saving}
           onClick={handleSave}
           style={{
             background: theme.accent,
@@ -236,7 +240,7 @@ function ConfigPanel({ tools, onSave, onSkip }: ConfigPanelProps) {
           }}
           type="button"
         >
-          保存配置
+          {saving ? "保存中..." : "保存配置"}
         </button>
       </div>
     </section>
