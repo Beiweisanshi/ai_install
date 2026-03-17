@@ -22,7 +22,7 @@ describe("Summary", () => {
   it("renders the installation summary", () => {
     render(<Summary results={results} tools={tools} />);
 
-    expect(screen.getByText("安装结果")).toBeInTheDocument();
+    expect(screen.getByText("安装完成")).toBeInTheDocument();
     expect(screen.getByText("Claude Code")).toBeInTheDocument();
     expect(screen.getByText("Codex")).toBeInTheDocument();
     expect(screen.getByText("Gemini")).toBeInTheDocument();
@@ -32,6 +32,8 @@ describe("Summary", () => {
   it("shows success, failed, and skipped counts", () => {
     render(<Summary results={results} tools={tools} />);
 
-    expect(screen.getByText("成功 2 / 失败 1 / 跳过 1")).toBeInTheDocument();
+    expect(screen.getByText("2 成功")).toBeInTheDocument();
+    expect(screen.getByText("1 失败")).toBeInTheDocument();
+    expect(screen.getByText("1 跳过")).toBeInTheDocument();
   });
 });

@@ -61,7 +61,7 @@ describe("ToolList", () => {
     );
 
     expect(screen.getByText("AI 工具安装器")).toBeInTheDocument();
-    expect(screen.getByText("工具总数 4")).toBeInTheDocument();
+    expect(screen.getByText("4 个工具")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "开始安装" })).toBeInTheDocument();
   });
@@ -98,13 +98,13 @@ describe("ToolList", () => {
 
     render(<Harness />);
 
-    expect(screen.getByText("已选择 1")).toBeInTheDocument();
+    expect(screen.getByText("已选 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "全选" }));
-    expect(screen.getByText("已选择 3")).toBeInTheDocument();
+    expect(screen.getByText("已选 3")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "清空" }));
-    expect(screen.getByText("已选择 0")).toBeInTheDocument();
+    expect(screen.getByText("已选 0")).toBeInTheDocument();
   });
 
   it("disables unavailable tools", () => {

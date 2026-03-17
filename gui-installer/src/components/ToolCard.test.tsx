@@ -12,42 +12,42 @@ describe("ToolCard", () => {
       currentVersion: undefined,
       availableVersion: "1.0.0",
       expectedLabel: "未安装",
-      expectedVersion: "可安装版本 1.0.0",
+      expectedVersion: "可安装 1.0.0",
     },
     {
       status: "installed" as const,
       currentVersion: "1.0.0",
       availableVersion: undefined,
       expectedLabel: "已安装",
-      expectedVersion: "当前版本 1.0.0",
+      expectedVersion: "1.0.0",
     },
     {
       status: "installed" as const,
       currentVersion: "0.32.1",
       availableVersion: "0.32.1",
       expectedLabel: "已安装",
-      expectedVersion: "当前版本 0.32.1（已是最新）",
+      expectedVersion: "0.32.1（最新）",
     },
     {
       status: "upgradable" as const,
       currentVersion: "1.0.0",
       availableVersion: "1.1.0",
       expectedLabel: "可升级",
-      expectedVersion: "当前版本 1.0.0 → 最新版本 1.1.0",
+      expectedVersion: "1.0.0 → 1.1.0",
     },
     {
       status: "success" as const,
       currentVersion: "1.1.0",
       availableVersion: undefined,
       expectedLabel: "成功",
-      expectedVersion: "当前版本 1.1.0",
+      expectedVersion: "1.1.0",
     },
     {
       status: "failed" as const,
       currentVersion: undefined,
       availableVersion: undefined,
       expectedLabel: "失败",
-      expectedVersion: "未检测到版本信息",
+      expectedVersion: "—",
     },
   ])("renders $status state", ({ status, currentVersion, availableVersion, expectedLabel, expectedVersion }) => {
     render(
@@ -123,9 +123,8 @@ describe("ToolCard", () => {
       />,
     );
 
-    expect(screen.getByText("安装中")).toBeInTheDocument();
-    expect(screen.getByText("安装进度")).toBeInTheDocument();
-    expect(screen.getByText("45%")).toBeInTheDocument();
+    expect(screen.getAllByText("安装中")).toHaveLength(2);
+    expect(screen.getByText(/45\s*%/)).toBeInTheDocument();
 
     const progressBar = container.querySelector('[style*="width: 45%"]');
     expect(progressBar).toBeInTheDocument();

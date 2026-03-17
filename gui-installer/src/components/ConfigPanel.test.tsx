@@ -16,7 +16,7 @@ describe("ConfigPanel", () => {
   it("renders API Key input as password type", () => {
     render(<ConfigPanel onSave={vi.fn()} onSkip={vi.fn()} tools={["Codex"]} />);
 
-    const apiKeyInput = screen.getByPlaceholderText("请输入 API Key");
+    const apiKeyInput = screen.getByPlaceholderText("输入 API Key");
     expect(apiKeyInput).toHaveAttribute("type", "password");
   });
 

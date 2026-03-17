@@ -16,13 +16,11 @@ describe("AppVersionBanner", () => {
       />,
     );
 
-    expect(screen.getByText("当前版本 0.1.0")).toBeInTheDocument();
-    expect(screen.getByText("最新版本 0.2.0")).toBeInTheDocument();
-    expect(screen.getByText("可升级")).toBeInTheDocument();
-    expect(screen.getByText("已配置升级地址")).toBeInTheDocument();
+    expect(screen.getByText("v0.1.0")).toBeInTheDocument();
+    expect(screen.getByText("0.2.0 可用")).toBeInTheDocument();
   });
 
-  it("renders missing-update-source state when latest version is unavailable", () => {
+  it("renders only current version when no upgrade is available", () => {
     render(
       <AppVersionBanner
         versionInfo={{
@@ -34,7 +32,7 @@ describe("AppVersionBanner", () => {
       />,
     );
 
-    expect(screen.getByText("未配置更新")).toBeInTheDocument();
-    expect(screen.getByText("最新版本信息未提供")).toBeInTheDocument();
+    expect(screen.getByText("v0.1.0")).toBeInTheDocument();
+    expect(screen.queryByText(/可用/)).not.toBeInTheDocument();
   });
 });
