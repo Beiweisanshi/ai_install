@@ -351,7 +351,10 @@ pub fn run_elevated(exe: &Path, args: &[&str]) -> io::Result<ExitStatus> {
         "$process = Start-Process -FilePath '{exe_arg}'{argument_list} -Verb RunAs -Wait -PassThru; exit $process.ExitCode"
     );
 
-    hidden_command("powershell")
+    // Do NOT use hidden_command / CREATE_NO_WINDOW here.
+    // -Verb RunAs requires a visible process to trigger the UAC prompt;
+    // CREATE_NO_WINDOW suppresses it, causing silent failure on fresh machines.
+    Command::new("powershell")
         .arg("-NoProfile")
         .arg("-NonInteractive")
         .arg("-Command")
