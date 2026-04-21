@@ -108,19 +108,28 @@ impl ToolInstaller for GitInstallerWin {
             wait_installer_idle(30).await;
             refresh_path_win()?;
 
+            // Git uses INNO Setup which may need a moment to finalize PATH registration.
+            let delays = [3u64, 5, 10];
+            let mut version = None;
+            for delay in &delays {
+                refresh_path_win()?;
+                sleep(Duration::from_secs(*delay)).await;
+                version = command_version("git", &["--version"]);
+                if version.is_some() {
+                    break;
+                }
+            }
+
             Ok(success_result(
                 self.name(),
-                command_version("git", &["--version"]),
+                version,
                 format!("Installed Git from {}", package.display()),
             ))
         })
     }
 
     fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move {
-            let _ = refresh_path_win();
-            command_version("git", &["--version"]).is_some()
-        })
+        Box::pin(async move { verify_command_with_retries("git", &["--version"], 5, 3).await })
     }
 }
 
@@ -364,11 +373,14 @@ pub fn run_elevated(exe: &Path, args: &[&str]) -> io::Result<ExitStatus> {
     );
 
     // Use full path to powershell.exe to avoid PATH dependency on fresh machines.
-    // Do NOT use hidden_command / CREATE_NO_WINDOW here — -Verb RunAs needs a
-    // visible process so the OS can show the UAC consent dialog.
+    // -WindowStyle Hidden suppresses the PowerShell console window without affecting
+    // UAC — the consent dialog is shown by consent.exe independently of the parent
+    // process window, so hiding the PowerShell window is safe here.
     Command::new(resolve_powershell_path())
         .arg("-NoProfile")
         .arg("-NonInteractive")
+        .arg("-WindowStyle")
+        .arg("Hidden")
         .arg("-Command")
         .arg(script)
         .status()
@@ -653,6 +665,14 @@ fn fallback_program_path(program: &str) -> Option<PathBuf> {
         "nu" => nushell_bin_dir()
             .map(|dir| dir.join("nu.exe"))
             .filter(|path| path.is_file()),
+        "git" => env::var_os("ProgramFiles").and_then(|pf| {
+            let path = PathBuf::from(pf).join("Git").join("cmd").join("git.exe");
+            path.is_file().then_some(path)
+        }),
+        "node" => env::var_os("ProgramFiles").and_then(|pf| {
+            let path = PathBuf::from(pf).join("nodejs").join("node.exe");
+            path.is_file().then_some(path)
+        }),
         _ => None,
     }
 }
