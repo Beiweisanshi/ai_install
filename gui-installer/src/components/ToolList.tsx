@@ -1,3 +1,4 @@
+import { Fragment } from "react";
 import ToolCard from "./ToolCard";
 import { theme } from "../styles/theme";
 import type { DetectResult } from "../types";
@@ -11,6 +12,7 @@ interface ToolListProps {
   onStartInstall: () => void;
   installing: boolean;
   progress: Record<string, { percent: number; stage: string }>;
+  logs?: Record<string, string[]>;
 }
 
 function getToolStatus(tool: DetectResult, installing: boolean, progressEntry?: { percent: number; stage: string }) {
@@ -40,6 +42,7 @@ function ToolList({
   onStartInstall,
   installing,
   progress,
+  logs,
 }: ToolListProps) {
   const installableTools = tools.filter((tool) => tool.installable);
   const allSelected = installableTools.length > 0 && selected.size === installableTools.length;
@@ -51,7 +54,7 @@ function ToolList({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
-              AI 工具安装器
+              zm_tools
             </h1>
             <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
               选择要安装或升级的工具
@@ -105,20 +108,37 @@ function ToolList({
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {tools.map((tool) => {
           const progressEntry = progress[tool.name];
+          const toolLogs = logs?.[tool.name] ?? [];
+          const status = getToolStatus(tool, installing, progressEntry);
+          const showLogs = installing && status === "installing" && toolLogs.length > 0;
 
           return (
-            <ToolCard
-              key={tool.name}
-              availableVersion={tool.available_version ?? undefined}
-              checked={selected.has(tool.name)}
-              currentVersion={tool.current_version ?? undefined}
-              detailText={tool.installable ? undefined : formatDetailText(tool.unavailable_reason)}
-              disabled={installing || !tool.installable}
-              name={tool.name}
-              onToggle={() => onToggle(tool.name)}
-              progress={progressEntry?.percent}
-              status={getToolStatus(tool, installing, progressEntry)}
-            />
+            <Fragment key={tool.name}>
+              <ToolCard
+                availableVersion={tool.available_version ?? undefined}
+                checked={selected.has(tool.name)}
+                currentVersion={tool.current_version ?? undefined}
+                detailText={tool.installable ? undefined : formatDetailText(tool.unavailable_reason)}
+                disabled={installing || !tool.installable}
+                name={tool.name}
+                onToggle={() => onToggle(tool.name)}
+                progress={progressEntry?.percent}
+                status={status}
+              />
+              {showLogs && (
+                <pre
+                  className="mt-1 max-h-32 overflow-auto rounded-md px-3 py-2 text-[10px] font-mono"
+                  style={{
+                    background: theme.bgTertiary,
+                    color: theme.textSecondary,
+                    whiteSpace: "pre-wrap",
+                    wordBreak: "break-all",
+                  }}
+                >
+                  {toolLogs.slice(-30).join("\n")}
+                </pre>
+              )}
+            </Fragment>
           );
         })}
       </div>

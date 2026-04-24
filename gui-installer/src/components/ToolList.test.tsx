@@ -60,7 +60,7 @@ describe("ToolList", () => {
       />,
     );
 
-    expect(screen.getByText("AI 工具安装器")).toBeInTheDocument();
+    expect(screen.getByText("zm_tools")).toBeInTheDocument();
     expect(screen.getByText("4 个工具")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "开始安装" })).toBeInTheDocument();

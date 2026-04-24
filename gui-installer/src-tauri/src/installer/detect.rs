@@ -50,7 +50,12 @@ pub fn get_available_version_from_packages(tool_name: &str, packages_dir: &Path)
         "Nushell" => &["nushell-*.msi", "nushell-*.tar.gz"],
         "Git" => &["Git-*-64-bit.exe", "git-*.pkg"],
         "Node.js" => &["node-*.msi", "node-*.pkg"],
-        "CC-Switch" => &["CC-Switch*.msi", "CC-Switch*.tar.gz", "CC-Switch*.dmg", "*cc-switch*"],
+        "CC-Switch" => &[
+            "CC-Switch*.msi",
+            "CC-Switch*.tar.gz",
+            "CC-Switch*.dmg",
+            "*cc-switch*",
+        ],
         _ => return None,
     };
 
@@ -164,11 +169,20 @@ fn installability(
     installed: bool,
     available_version: Option<&str>,
 ) -> (bool, Option<String>) {
-    if installed || is_npm_tool || available_version.is_some() {
+    #[cfg(target_os = "macos")]
+    {
+        let _ = (is_npm_tool, installed, available_version);
         return (true, None);
     }
 
-    (false, Some("Missing local package".to_string()))
+    #[cfg(not(target_os = "macos"))]
+    {
+        if installed || is_npm_tool || available_version.is_some() {
+            return (true, None);
+        }
+
+        (false, Some("Missing local package".to_string()))
+    }
 }
 
 fn command_output_with_timeout(program: &str, args: &[&str], timeout: Duration) -> Option<Output> {
@@ -393,6 +407,7 @@ mod tests {
         assert_eq!(compare_semver("invalid", "2.0.0"), Ordering::Equal);
     }
 
+    #[cfg(not(target_os = "macos"))]
     #[test]
     fn test_installability_for_missing_local_package() {
         let (installable, unavailable_reason) = installability(false, false, None);
@@ -404,6 +419,15 @@ mod tests {
     #[test]
     fn test_installability_for_npm_tool_without_detected_version() {
         let (installable, unavailable_reason) = installability(true, false, None);
+
+        assert!(installable);
+        assert!(unavailable_reason.is_none());
+    }
+
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn test_installability_for_macos_brew_fallback() {
+        let (installable, unavailable_reason) = installability(false, false, None);
 
         assert!(installable);
         assert!(unavailable_reason.is_none());

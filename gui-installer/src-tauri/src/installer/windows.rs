@@ -1,5 +1,6 @@
 #![cfg(target_os = "windows")]
 
+use std::cmp::Ordering;
 use std::env;
 use std::ffi::OsStr;
 use std::io;
@@ -12,12 +13,15 @@ use glob::Pattern;
 use tauri::AppHandle;
 use tokio::time::{Duration, sleep};
 
+use super::detect::{compare_semver, parse_version_from_filename};
 use super::{BoxFuture, ToolInstaller, locate_packages_dir, verify_package_hash};
 use crate::types::{DetectResult, InstallResult, InstallerError};
 
 pub const CREATE_NO_WINDOW: u32 = 0x08000000;
 
 pub struct NushellInstallerWin;
+
+const NUSHELL_PACKAGE_PATTERN: &str = "nushell-*.msi";
 
 impl ToolInstaller for NushellInstallerWin {
     fn name(&self) -> &str {
@@ -28,17 +32,23 @@ impl ToolInstaller for NushellInstallerWin {
         Box::pin(async move { detect_result(self.name(), command_version("nu", &["--version"])) })
     }
 
+    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async move { bundled_target_version(NUSHELL_PACKAGE_PATTERN) })
+    }
+
     fn install(&self, _app: &AppHandle) -> BoxFuture<'_, Result<InstallResult, InstallerError>> {
         Box::pin(async move {
-            if let Some(version) = command_version("nu", &["--version"]) {
+            let current = command_version("nu", &["--version"]);
+            let target = bundled_target_version(NUSHELL_PACKAGE_PATTERN);
+            if !is_upgrade_needed(current.as_deref(), target.as_deref()) {
                 return Ok(success_result(
                     self.name(),
-                    Some(version),
-                    "Nushell already installed",
+                    current,
+                    "Nushell already up to date",
                 ));
             }
 
-            let package = find_package(&windows_packages_dir()?, "nushell-*.msi")?;
+            let package = find_package(&windows_packages_dir()?, NUSHELL_PACKAGE_PATTERN)?;
             verify_package_hash(&package)?;
 
             let status = run_msi_elevated(&package, &["/qn", "/norestart"]).map_err(|error| {
@@ -64,11 +74,16 @@ impl ToolInstaller for NushellInstallerWin {
     }
 
     fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { verify_command_with_retries("nu", &["--version"], 5, 3).await })
+        Box::pin(async move {
+            let target = bundled_target_version(NUSHELL_PACKAGE_PATTERN);
+            verify_meets_target("nu", &["--version"], target.as_deref(), 5, 3).await
+        })
     }
 }
 
 pub struct GitInstallerWin;
+
+const GIT_PACKAGE_PATTERN: &str = "Git-*-64-bit.exe";
 
 impl ToolInstaller for GitInstallerWin {
     fn name(&self) -> &str {
@@ -79,17 +94,23 @@ impl ToolInstaller for GitInstallerWin {
         Box::pin(async move { detect_result(self.name(), command_version("git", &["--version"])) })
     }
 
+    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async move { bundled_target_version(GIT_PACKAGE_PATTERN) })
+    }
+
     fn install(&self, _app: &AppHandle) -> BoxFuture<'_, Result<InstallResult, InstallerError>> {
         Box::pin(async move {
-            if let Some(version) = command_version("git", &["--version"]) {
+            let current = command_version("git", &["--version"]);
+            let target = bundled_target_version(GIT_PACKAGE_PATTERN);
+            if !is_upgrade_needed(current.as_deref(), target.as_deref()) {
                 return Ok(success_result(
                     self.name(),
-                    Some(version),
-                    "Git already installed",
+                    current,
+                    "Git already up to date",
                 ));
             }
 
-            let package = find_package(&windows_packages_dir()?, "Git-*-64-bit.exe")?;
+            let package = find_package(&windows_packages_dir()?, GIT_PACKAGE_PATTERN)?;
             verify_package_hash(&package)?;
             unblock_file(&package);
 
@@ -129,11 +150,16 @@ impl ToolInstaller for GitInstallerWin {
     }
 
     fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { verify_command_with_retries("git", &["--version"], 5, 3).await })
+        Box::pin(async move {
+            let target = bundled_target_version(GIT_PACKAGE_PATTERN);
+            verify_meets_target("git", &["--version"], target.as_deref(), 5, 3).await
+        })
     }
 }
 
 pub struct NodeInstallerWin;
+
+const NODE_PACKAGE_PATTERN: &str = "node-*-x64.msi";
 
 impl ToolInstaller for NodeInstallerWin {
     fn name(&self) -> &str {
@@ -144,17 +170,23 @@ impl ToolInstaller for NodeInstallerWin {
         Box::pin(async move { detect_result(self.name(), command_version("node", &["--version"])) })
     }
 
+    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async move { bundled_target_version(NODE_PACKAGE_PATTERN) })
+    }
+
     fn install(&self, _app: &AppHandle) -> BoxFuture<'_, Result<InstallResult, InstallerError>> {
         Box::pin(async move {
-            if let Some(version) = command_version("node", &["--version"]) {
+            let current = command_version("node", &["--version"]);
+            let target = bundled_target_version(NODE_PACKAGE_PATTERN);
+            if !is_upgrade_needed(current.as_deref(), target.as_deref()) {
                 return Ok(success_result(
                     self.name(),
-                    Some(version),
-                    "Node.js already installed",
+                    current,
+                    "Node.js already up to date",
                 ));
             }
 
-            let package = find_package(&windows_packages_dir()?, "node-*-x64.msi")?;
+            let package = find_package(&windows_packages_dir()?, NODE_PACKAGE_PATTERN)?;
             verify_package_hash(&package)?;
 
             let status = run_msi_elevated(&package, &["/qn", "/norestart"]).map_err(|error| {
@@ -192,23 +224,55 @@ impl ToolInstaller for NodeInstallerWin {
 
     fn verify(&self) -> BoxFuture<'_, bool> {
         Box::pin(async move {
-            for attempt in 0..3 {
-                let _ = refresh_path_win();
-                if command_version("node", &["--version"]).is_some() {
-                    return true;
-                }
-
-                if attempt < 2 {
-                    sleep(Duration::from_secs(5)).await;
-                }
-            }
-
-            false
+            let target = bundled_target_version(NODE_PACKAGE_PATTERN);
+            verify_meets_target("node", &["--version"], target.as_deref(), 3, 5).await
         })
     }
 }
 
 pub struct CCSwitchInstallerWin;
+
+const CC_SWITCH_PACKAGE_PATTERNS: &[&str] = &[
+    "CC-Switch*.msi",
+    "CC-Switch*.exe",
+    "*cc-switch*.msi",
+    "*cc-switch*.exe",
+];
+
+/// Return the bundled CC-Switch package path (MSI preferred, EXE fallback).
+fn cc_switch_bundled_package() -> Option<PathBuf> {
+    let dir = windows_packages_dir().ok()?;
+    for pattern in CC_SWITCH_PACKAGE_PATTERNS {
+        if let Ok(package) = find_package(&dir, pattern) {
+            return Some(package);
+        }
+    }
+    None
+}
+
+fn cc_switch_target_version_sync() -> Option<String> {
+    let package = cc_switch_bundled_package()?;
+    let filename = package.file_name()?.to_str()?;
+    parse_version_from_filename(filename)
+}
+
+/// Read a file's FileVersion resource using PowerShell.
+fn read_file_version(path: &Path) -> Option<String> {
+    let path_str = powershell_single_quoted(&path.to_string_lossy());
+    let script = format!(
+        "$ErrorActionPreference='SilentlyContinue'; (Get-Item '{path_str}').VersionInfo.FileVersion"
+    );
+    let raw = run_powershell_script(&script)?;
+    if raw.is_empty() {
+        return None;
+    }
+    parse_version_from_filename(&raw).or(Some(raw))
+}
+
+fn cc_switch_current_version() -> Option<String> {
+    let exe = cc_switch_executable_path()?;
+    read_file_version(&exe)
+}
 
 impl ToolInstaller for CCSwitchInstallerWin {
     fn name(&self) -> &str {
@@ -218,10 +282,15 @@ impl ToolInstaller for CCSwitchInstallerWin {
     fn detect(&self) -> BoxFuture<'_, DetectResult> {
         Box::pin(async move {
             let installed = cc_switch_executable_path().is_some();
+            let current_version = if installed {
+                cc_switch_current_version()
+            } else {
+                None
+            };
             DetectResult {
                 name: self.name().to_string(),
                 installed,
-                current_version: None,
+                current_version,
                 available_version: None,
                 upgradable: false,
                 installable: true,
@@ -230,13 +299,19 @@ impl ToolInstaller for CCSwitchInstallerWin {
         })
     }
 
+    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async move { cc_switch_target_version_sync() })
+    }
+
     fn install(&self, _app: &AppHandle) -> BoxFuture<'_, Result<InstallResult, InstallerError>> {
         Box::pin(async move {
-            if cc_switch_executable_path().is_some() {
+            let current = cc_switch_current_version();
+            let target = cc_switch_target_version_sync();
+            if !is_upgrade_needed(current.as_deref(), target.as_deref()) {
                 return Ok(success_result(
                     self.name(),
-                    None,
-                    "CC-Switch already installed",
+                    current,
+                    "CC-Switch already up to date",
                 ));
             }
 
@@ -275,14 +350,35 @@ impl ToolInstaller for CCSwitchInstallerWin {
 
             Ok(success_result(
                 self.name(),
-                None,
+                cc_switch_current_version(),
                 format!("Installed CC-Switch from {}", package.display()),
             ))
         })
     }
 
     fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { cc_switch_executable_path().is_some() })
+        Box::pin(async move {
+            // CC-Switch has no CLI `--version`; fall back to "executable exists +
+            // (if target known) FileVersion >= target".
+            let target = cc_switch_target_version_sync();
+            for attempt in 0..5 {
+                if cc_switch_executable_path().is_some() {
+                    let current = cc_switch_current_version();
+                    let meets = match (current.as_deref(), target.as_deref()) {
+                        (_, None) => true,
+                        (None, Some(_)) => false,
+                        (Some(c), Some(t)) => compare_semver(c, t) != Ordering::Less,
+                    };
+                    if meets {
+                        return true;
+                    }
+                }
+                if attempt + 1 < 5 {
+                    sleep(Duration::from_secs(3)).await;
+                }
+            }
+            false
+        })
     }
 }
 
@@ -340,8 +436,14 @@ pub fn find_package(dir: &Path, pattern: &str) -> Result<PathBuf, InstallerError
     }
 
     matches.sort_by(|a, b| {
-        let ver_a = a.file_name().and_then(|n| n.to_str()).and_then(super::detect::parse_version_from_filename);
-        let ver_b = b.file_name().and_then(|n| n.to_str()).and_then(super::detect::parse_version_from_filename);
+        let ver_a = a
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(super::detect::parse_version_from_filename);
+        let ver_b = b
+            .file_name()
+            .and_then(|n| n.to_str())
+            .and_then(super::detect::parse_version_from_filename);
         match (ver_a.as_deref(), ver_b.as_deref()) {
             (Some(va), Some(vb)) => super::detect::compare_semver(va, vb),
             _ => a.cmp(b),
@@ -431,8 +533,67 @@ pub fn hidden_command(program: impl AsRef<OsStr>) -> Command {
     command
 }
 
+/// Run a PowerShell script and return trimmed stdout, or `None` on any failure.
+fn run_powershell_script(script: &str) -> Option<String> {
+    let output = hidden_command(resolve_powershell_path())
+        .arg("-NoProfile")
+        .arg("-NonInteractive")
+        .arg("-Command")
+        .arg(script)
+        .output()
+        .ok()?;
+    if !output.status.success() {
+        return None;
+    }
+    Some(String::from_utf8_lossy(&output.stdout).trim().to_string())
+}
+
 fn windows_packages_dir() -> Result<PathBuf, InstallerError> {
     Ok(locate_packages_dir()?.join("windows"))
+}
+
+fn bundled_target_version(pattern: &str) -> Option<String> {
+    let dir = windows_packages_dir().ok()?;
+    let package = find_package(&dir, pattern).ok()?;
+    let filename = package.file_name()?.to_str()?;
+    parse_version_from_filename(filename)
+}
+
+/// `target=None` means "unknown target, run anyway" — never regress when we
+/// can't compare.
+fn is_upgrade_needed(current: Option<&str>, target: Option<&str>) -> bool {
+    match (current, target) {
+        (_, None) => true,
+        (None, Some(_)) => true,
+        (Some(c), Some(t)) => compare_semver(c, t) == Ordering::Less,
+    }
+}
+
+async fn verify_meets_target(
+    program: &str,
+    args: &[&str],
+    target: Option<&str>,
+    attempts: usize,
+    wait_secs: u64,
+) -> bool {
+    for attempt in 0..attempts {
+        let _ = refresh_path_win();
+        if let Some(current) = command_version(program, args) {
+            let meets = match target {
+                Some(target) => compare_semver(&current, target) != Ordering::Less,
+                None => true,
+            };
+            if meets {
+                return true;
+            }
+        }
+
+        if attempt + 1 < attempts {
+            sleep(Duration::from_secs(wait_secs)).await;
+        }
+    }
+
+    false
 }
 
 fn detect_result(name: &str, version: Option<String>) -> DetectResult {
@@ -751,22 +912,264 @@ fn ensure_user_path_contains(path: &Path) -> Result<(), InstallerError> {
     }
 }
 
-async fn verify_command_with_retries(
-    program: &str,
-    args: &[&str],
-    wait_secs: u64,
-    attempts: usize,
-) -> bool {
-    for attempt in 0..attempts {
-        let _ = refresh_path_win();
-        if command_version(program, args).is_some() {
-            return true;
-        }
+// ---------------------------------------------------------------------------
+// Running-process detection & termination (for npm-based CLI upgrades).
+// ---------------------------------------------------------------------------
 
-        if attempt + 1 < attempts {
-            sleep(Duration::from_secs(wait_secs)).await;
-        }
+use crate::types::RunningProc;
+
+/// Signature used to identify a running instance of an npm-installed CLI.
+/// `bin_names` match against the image name (must live under `%APPDATA%\npm\`
+/// to count); `path_fragments` match against the full `ExecutablePath` to
+/// catch node.exe grandchildren spawned by the shim.
+struct PkgSignature {
+    bin_names: &'static [&'static str],
+    path_fragments: &'static [&'static str],
+}
+
+fn signature_for_pkg(pkg: &str) -> &'static PkgSignature {
+    static EMPTY: PkgSignature = PkgSignature {
+        bin_names: &[],
+        path_fragments: &[],
+    };
+    static CLAUDE: PkgSignature = PkgSignature {
+        bin_names: &["claude.exe"],
+        path_fragments: &["\\npm\\node_modules\\@anthropic-ai\\claude-code\\"],
+    };
+    static CODEX: PkgSignature = PkgSignature {
+        bin_names: &["codex.exe"],
+        path_fragments: &["\\npm\\node_modules\\@openai\\codex\\"],
+    };
+    static GEMINI: PkgSignature = PkgSignature {
+        bin_names: &["gemini.exe"],
+        path_fragments: &["\\npm\\node_modules\\@google\\gemini-cli\\"],
+    };
+    match pkg {
+        "@anthropic-ai/claude-code" => &CLAUDE,
+        "@openai/codex" => &CODEX,
+        "@google/gemini-cli" => &GEMINI,
+        _ => &EMPTY,
+    }
+}
+
+/// Enumerate running processes that hold the target npm package's files open.
+///
+/// Matches only on two precise signals:
+/// 1. Image name equals the CLI's `.exe` AND its on-disk path is under
+///    `%APPDATA%\npm\` (the npm global shim directory).
+/// 2. Any process's `ExecutablePath` contains the package's `node_modules`
+///    directory (catches node.exe grandchildren launched by the shim).
+///
+/// Command-line substring matching is **deliberately avoided** — it produced
+/// false positives when unrelated tools (e.g. Claude Code MCP servers) held
+/// arguments that mentioned another CLI's package name.
+pub(crate) fn find_running_cli_processes(pkg: &str) -> Vec<RunningProc> {
+    let sig = signature_for_pkg(pkg);
+    if sig.bin_names.is_empty() && sig.path_fragments.is_empty() {
+        return Vec::new();
     }
 
-    false
+    let npm_dir = match std::env::var_os("APPDATA") {
+        Some(appdata) => PathBuf::from(appdata).join("npm"),
+        None => return Vec::new(),
+    };
+    let npm_dir_str = npm_dir.to_string_lossy().to_string();
+
+    // Pre-filter at the WMI query level (indexed, much cheaper than scanning
+    // every process through a Where-Object pipeline).  Name is cheap to index,
+    // ExecutablePath uses LIKE which still narrows the result set substantially
+    // before the client-side validation.
+    let name_or = sig
+        .bin_names
+        .iter()
+        .map(|n| format!("Name = '{}'", wql_escape(n)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let path_like = sig
+        .path_fragments
+        .iter()
+        .map(|f| format!("ExecutablePath LIKE '%{}%'", wql_escape(f)))
+        .collect::<Vec<_>>()
+        .join(" OR ");
+    let wql_filter = match (name_or.is_empty(), path_like.is_empty()) {
+        (false, false) => format!("({name_or}) OR ({path_like})"),
+        (false, true) => name_or,
+        (true, false) => path_like,
+        (true, true) => return Vec::new(),
+    };
+
+    // Client-side re-validation: WMI's LIKE is case-sensitive-ish and doesn't
+    // enforce the %APPDATA%\npm\ root for image-name matches.  Do a final
+    // ExecutablePath check in PowerShell to reject false positives.
+    let name_clauses: Vec<String> = sig
+        .bin_names
+        .iter()
+        .map(|n| {
+            format!(
+                "($_.Name -eq '{}' -and $_.ExecutablePath -and $_.ExecutablePath.ToLower().StartsWith('{}'.ToLower()))",
+                powershell_single_quoted(n),
+                powershell_single_quoted(&npm_dir_str)
+            )
+        })
+        .collect();
+    let path_clauses: Vec<String> = sig
+        .path_fragments
+        .iter()
+        .map(|f| {
+            format!(
+                "($_.ExecutablePath -and $_.ExecutablePath.ToLower().Contains('{}'.ToLower()))",
+                powershell_single_quoted(f)
+            )
+        })
+        .collect();
+    let mut all_clauses = name_clauses;
+    all_clauses.extend(path_clauses);
+    let refine = all_clauses.join(" -or ");
+
+    // CommandLine is deliberately omitted — we don't match on it and reading
+    // it from WMI is the slowest column to materialize.  ExecutablePath is
+    // surfaced instead for the UI's process-list display.
+    let script = format!(
+        "$ErrorActionPreference='SilentlyContinue'; \
+         Get-CimInstance Win32_Process -Filter \"{wql_filter}\" | \
+         Where-Object {{ {refine} }} | \
+         Select-Object Name, ProcessId, ExecutablePath | \
+         ConvertTo-Json -Depth 2 -Compress"
+    );
+
+    let stdout = match run_powershell_script(&script) {
+        Some(s) if !s.is_empty() => s,
+        _ => return Vec::new(),
+    };
+
+    parse_cim_process_json(&stdout)
+}
+
+/// Escape a string for safe embedding inside a WQL single-quoted literal.
+/// WQL uses `\` as the escape character; only `'` and `\` need escaping.
+fn wql_escape(value: &str) -> String {
+    value.replace('\\', "\\\\").replace('\'', "\\'")
+}
+
+fn parse_cim_process_json(stdout: &str) -> Vec<RunningProc> {
+    let value: serde_json::Value = match serde_json::from_str(stdout) {
+        Ok(v) => v,
+        Err(_) => return Vec::new(),
+    };
+
+    let items: Vec<&serde_json::Value> = match &value {
+        serde_json::Value::Array(arr) => arr.iter().collect(),
+        serde_json::Value::Object(_) => vec![&value],
+        _ => return Vec::new(),
+    };
+
+    items
+        .into_iter()
+        .filter_map(|item| {
+            let pid = item
+                .get("ProcessId")
+                .and_then(|v| v.as_u64())
+                .map(|n| n as u32)?;
+            let name = item
+                .get("Name")
+                .and_then(|v| v.as_str())
+                .unwrap_or_default()
+                .to_string();
+            let executable_path = item
+                .get("ExecutablePath")
+                .and_then(|v| v.as_str())
+                .map(|s| s.to_string());
+            Some(RunningProc {
+                pid,
+                name,
+                executable_path,
+            })
+        })
+        .collect()
+}
+
+/// Terminate the given PIDs with `taskkill /F /T` in a single invocation.
+/// Returns the number of PIDs taskkill reported terminating; on partial
+/// failure (some PIDs already gone, access denied) the exit code is non-zero
+/// and we conservatively report 0 — callers use this only to decide whether
+/// to proceed, not for exact bookkeeping.
+pub(crate) fn kill_processes_by_pid(pids: &[u32]) -> usize {
+    if pids.is_empty() {
+        return 0;
+    }
+    let mut cmd = hidden_command("taskkill");
+    cmd.arg("/F").arg("/T");
+    for pid in pids {
+        cmd.arg("/PID").arg(pid.to_string());
+    }
+    match cmd.status() {
+        Ok(status) if status.success() => pids.len(),
+        _ => 0,
+    }
+}
+
+#[cfg(test)]
+mod upgrade_decision_tests {
+    use super::{is_upgrade_needed, parse_cim_process_json};
+
+    #[test]
+    fn current_newer_than_target_skips() {
+        assert!(!is_upgrade_needed(Some("2.0.0"), Some("1.0.0")));
+    }
+
+    #[test]
+    fn current_older_than_target_runs() {
+        assert!(is_upgrade_needed(Some("1.0.0"), Some("2.0.0")));
+    }
+
+    #[test]
+    fn current_equal_target_skips() {
+        assert!(!is_upgrade_needed(Some("1.2.3"), Some("1.2.3")));
+    }
+
+    #[test]
+    fn no_target_runs_by_default() {
+        // Unknown target — we cannot compare, so install anyway (never regress behavior).
+        assert!(is_upgrade_needed(Some("1.0.0"), None));
+        assert!(is_upgrade_needed(None, None));
+    }
+
+    #[test]
+    fn no_current_runs() {
+        assert!(is_upgrade_needed(None, Some("1.0.0")));
+    }
+
+    #[test]
+    fn cim_array_parses() {
+        let json = r#"[
+            {"Name":"codex.exe","ProcessId":12345,"ExecutablePath":"C:\\path\\codex.exe"},
+            {"Name":"node.exe","ProcessId":67890,"ExecutablePath":"C:\\path\\node.exe"}
+        ]"#;
+        let procs = parse_cim_process_json(json);
+        assert_eq!(procs.len(), 2);
+        assert_eq!(procs[0].pid, 12345);
+        assert_eq!(procs[0].name, "codex.exe");
+        assert_eq!(
+            procs[0].executable_path.as_deref(),
+            Some("C:\\path\\codex.exe")
+        );
+        assert_eq!(procs[1].pid, 67890);
+    }
+
+    #[test]
+    fn cim_single_object_parses() {
+        let json = r#"{"Name":"codex.exe","ProcessId":42,"ExecutablePath":null}"#;
+        let procs = parse_cim_process_json(json);
+        assert_eq!(procs.len(), 1);
+        assert_eq!(procs[0].pid, 42);
+        assert_eq!(procs[0].name, "codex.exe");
+        assert!(procs[0].executable_path.is_none());
+    }
+
+    #[test]
+    fn cim_empty_or_malformed_returns_empty() {
+        assert!(parse_cim_process_json("").is_empty());
+        assert!(parse_cim_process_json("not json").is_empty());
+        assert!(parse_cim_process_json("null").is_empty());
+    }
 }

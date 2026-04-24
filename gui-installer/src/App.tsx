@@ -1,3 +1,4 @@
+import BlockingProcessesModal from "./components/BlockingProcessesModal";
 import ConfigPanel from "./components/ConfigPanel";
 import Layout from "./components/Layout";
 import Summary from "./components/Summary";
@@ -34,6 +35,7 @@ function App() {
           onStartInstall={installer.startInstall}
           installing={installer.phase === "installing"}
           progress={smoothedProgress}
+          logs={installer.logs}
         />
       )}
 
@@ -46,6 +48,15 @@ function App() {
       )}
 
       {installer.phase === "summary" && <Summary results={installer.results} tools={installer.tools} />}
+
+      {installer.blocking && (
+        <BlockingProcessesModal
+          state={installer.blocking}
+          onKillAndRetry={installer.killBlockingAndRetry}
+          onRetry={installer.retryBlocking}
+          onDismiss={installer.dismissBlocking}
+        />
+      )}
     </Layout>
   );
 }

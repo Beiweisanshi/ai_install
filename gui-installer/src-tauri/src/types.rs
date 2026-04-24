@@ -54,6 +54,13 @@ pub struct ConfigEntry {
     pub api_key: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct RunningProc {
+    pub pid: u32,
+    pub name: String,
+    pub executable_path: Option<String>,
+}
+
 #[derive(Debug, Clone)]
 pub enum InstallerError {
     PackageNotFound {
@@ -84,6 +91,14 @@ pub enum InstallerError {
         detail: String,
         user_message: String,
     },
+    /// The tool cannot be upgraded because one or more processes are still
+    /// holding its files open.  The `processes` list is surfaced to the UI so
+    /// the user can choose to terminate them and retry.
+    Blocked {
+        detail: String,
+        user_message: String,
+        processes: Vec<RunningProc>,
+    },
 }
 
 impl InstallerError {
@@ -95,7 +110,8 @@ impl InstallerError {
             | Self::ConfigFailed { detail, .. }
             | Self::Timeout { detail, .. }
             | Self::HashMismatch { detail, .. }
-            | Self::InvalidInput { detail, .. } => detail,
+            | Self::InvalidInput { detail, .. }
+            | Self::Blocked { detail, .. } => detail,
         }
     }
 
@@ -107,7 +123,8 @@ impl InstallerError {
             | Self::ConfigFailed { user_message, .. }
             | Self::Timeout { user_message, .. }
             | Self::HashMismatch { user_message, .. }
-            | Self::InvalidInput { user_message, .. } => user_message,
+            | Self::InvalidInput { user_message, .. }
+            | Self::Blocked { user_message, .. } => user_message,
         }
     }
 }

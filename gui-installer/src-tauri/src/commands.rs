@@ -4,14 +4,16 @@ use tauri::AppHandle;
 
 use crate::config;
 use crate::installer::{self, ToolInstaller};
-use crate::types::{AppVersionInfo, ConfigEntry, DetectResult, InstallResult, InstallerError};
+use crate::types::{
+    AppVersionInfo, ConfigEntry, DetectResult, InstallResult, InstallerError, RunningProc,
+};
 use crate::version;
 
 #[cfg(target_os = "macos")]
 use crate::installer::macos::{
     CCSwitchInstallerMac, GitInstallerMac, NodeInstallerMac, NushellInstallerMac,
 };
-use crate::installer::npm::{ClaudeCliInstaller, CodexCliInstaller, GeminiCliInstaller};
+use crate::installer::npm::NpmCliInstaller;
 #[cfg(target_os = "windows")]
 use crate::installer::windows::{
     CCSwitchInstallerWin, GitInstallerWin, NodeInstallerWin, NushellInstallerWin,
@@ -52,6 +54,38 @@ pub async fn save_config(entries: Vec<ConfigEntry>) -> Result<(), String> {
 #[tauri::command]
 pub async fn get_app_version_info() -> Result<AppVersionInfo, String> {
     Ok(version::get_app_version_info())
+}
+
+/// Return processes currently holding the given npm package's files open.
+/// On non-Windows platforms returns an empty list.
+#[tauri::command]
+pub async fn list_blocking_processes(pkg: String) -> Result<Vec<RunningProc>, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(installer::windows::find_running_cli_processes(&pkg))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = pkg;
+        Ok(Vec::new())
+    }
+}
+
+/// Forcefully terminate the given PIDs (taskkill /F /T on Windows).
+/// Returns the number of processes successfully terminated.
+#[tauri::command]
+pub async fn kill_blocking_processes(pids: Vec<u32>) -> Result<usize, String> {
+    #[cfg(target_os = "windows")]
+    {
+        Ok(installer::windows::kill_processes_by_pid(&pids))
+    }
+
+    #[cfg(not(target_os = "windows"))]
+    {
+        let _ = pids;
+        Ok(0)
+    }
 }
 
 fn push_selected<T>(
@@ -96,9 +130,24 @@ fn build_windows_installers(selected: &HashSet<&str>) -> Vec<Box<dyn ToolInstall
     push_selected(selected, &mut installers, "Nushell", NushellInstallerWin);
     push_selected(selected, &mut installers, "Git", GitInstallerWin);
     push_selected(selected, &mut installers, "Node.js", NodeInstallerWin);
-    push_selected(selected, &mut installers, "Claude CLI", ClaudeCliInstaller);
-    push_selected(selected, &mut installers, "Codex CLI", CodexCliInstaller);
-    push_selected(selected, &mut installers, "Gemini CLI", GeminiCliInstaller);
+    push_selected(
+        selected,
+        &mut installers,
+        "Claude CLI",
+        NpmCliInstaller::claude(),
+    );
+    push_selected(
+        selected,
+        &mut installers,
+        "Codex CLI",
+        NpmCliInstaller::codex(),
+    );
+    push_selected(
+        selected,
+        &mut installers,
+        "Gemini CLI",
+        NpmCliInstaller::gemini(),
+    );
     push_selected(selected, &mut installers, "CC-Switch", CCSwitchInstallerWin);
 
     installers
@@ -111,9 +160,24 @@ fn build_macos_installers(selected: &HashSet<&str>) -> Vec<Box<dyn ToolInstaller
     push_selected(selected, &mut installers, "Nushell", NushellInstallerMac);
     push_selected(selected, &mut installers, "Git", GitInstallerMac);
     push_selected(selected, &mut installers, "Node.js", NodeInstallerMac);
-    push_selected(selected, &mut installers, "Claude CLI", ClaudeCliInstaller);
-    push_selected(selected, &mut installers, "Codex CLI", CodexCliInstaller);
-    push_selected(selected, &mut installers, "Gemini CLI", GeminiCliInstaller);
+    push_selected(
+        selected,
+        &mut installers,
+        "Claude CLI",
+        NpmCliInstaller::claude(),
+    );
+    push_selected(
+        selected,
+        &mut installers,
+        "Codex CLI",
+        NpmCliInstaller::codex(),
+    );
+    push_selected(
+        selected,
+        &mut installers,
+        "Gemini CLI",
+        NpmCliInstaller::gemini(),
+    );
     push_selected(selected, &mut installers, "CC-Switch", CCSwitchInstallerMac);
 
     installers

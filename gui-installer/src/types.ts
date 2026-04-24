@@ -35,3 +35,15 @@ export interface AppVersionInfo {
   upgrade_available: boolean;
   download_url: string | null;
 }
+
+export interface RunningProc {
+  pid: number;
+  name: string;
+  executable_path: string | null;
+}
+
+export interface BlockingState {
+  toolName: string;
+  pkg: string;
+  processes: RunningProc[];
+}

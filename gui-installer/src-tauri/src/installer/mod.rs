@@ -3,6 +3,7 @@ pub mod macos;
 pub mod npm;
 pub mod windows;
 
+use std::cmp::Ordering;
 use std::fs;
 use std::future::Future;
 use std::path::{Path, PathBuf};
@@ -29,6 +30,13 @@ pub trait ToolInstaller: Send + Sync {
     fn verify(&self) -> BoxFuture<'_, bool>;
     fn dependencies(&self) -> &'static [&'static str] {
         &[]
+    }
+
+    /// The version the pipeline expects to see on disk after `install()`.
+    /// Returning `None` means "unknown target" — the pipeline will still run
+    /// but cannot enforce the upgrade invariant.
+    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
+        Box::pin(async { None })
     }
 }
 
@@ -105,36 +113,53 @@ pub async fn install_tool_pipeline(
         "Installation finished, preparing verification",
     );
     emit_progress(app, &tool_name, "verifying", 80, "Verifying installation");
-    if installer.verify().await {
-        let elapsed = elapsed_ms(started_at);
-        let version = install_result
-            .version
-            .clone()
-            .or(detect_result.current_version);
-        let message = if install_result.message.is_empty() {
-            "Installation complete".to_string()
-        } else {
-            install_result.message.clone()
-        };
+    let verify_ok = installer.verify().await;
+    let post_install = installer.detect().await;
+    let post_version = post_install.current_version.clone();
+    let target_version = installer.target_version().await;
 
-        emit_progress(app, &tool_name, "done", 100, &message);
+    let elapsed = elapsed_ms(started_at);
+    let fail = |message: String, version: Option<String>| {
+        emit_progress(app, &tool_name, "failed", 100, &message);
         InstallResult {
-            name: tool_name,
-            success: true,
+            name: tool_name.clone(),
+            success: false,
             version,
             message,
             duration_ms: elapsed,
         }
-    } else {
-        let elapsed = elapsed_ms(started_at);
-        let message = "Post-install verification failed".to_string();
-        emit_progress(app, &tool_name, "failed", 100, &message);
-        InstallResult {
-            name: tool_name,
-            success: false,
-            version: install_result.version,
-            message,
-            duration_ms: elapsed,
+    };
+
+    match evaluate_version_check(
+        verify_ok,
+        post_version.as_deref(),
+        target_version.as_deref(),
+    ) {
+        VersionCheckOutcome::VerifyFailed => {
+            fail("Post-install verification failed".to_string(), post_version)
+        }
+        VersionCheckOutcome::NoVersion => fail(
+            "Post-install version probe returned nothing".to_string(),
+            None,
+        ),
+        VersionCheckOutcome::BelowTarget { post, target } => fail(
+            format!("Installed {post} is older than expected {target}; upgrade did not apply"),
+            Some(post),
+        ),
+        VersionCheckOutcome::Ok => {
+            let message = if install_result.message.is_empty() {
+                "Installation complete".to_string()
+            } else {
+                install_result.message.clone()
+            };
+            emit_progress(app, &tool_name, "done", 100, &message);
+            InstallResult {
+                name: tool_name,
+                success: true,
+                version: post_version,
+                message,
+                duration_ms: elapsed,
+            }
         }
     }
 }
@@ -185,6 +210,17 @@ fn locate_packages_dir_from_exe(current_exe: &Path) -> Result<PathBuf, Installer
         })?;
 
     let mut candidates = Vec::new();
+    if let Some(app_bundle_dir) = macos_app_bundle_dir(current_exe) {
+        if let Some(app_parent_dir) = app_bundle_dir.parent() {
+            candidates.push(app_parent_dir.join("packages"));
+        }
+        candidates.push(
+            app_bundle_dir
+                .join("Contents")
+                .join("Resources")
+                .join("packages"),
+        );
+    }
     if let Some(parent_dir) = exe_dir.parent() {
         candidates.push(parent_dir.join("packages"));
     }
@@ -203,6 +239,12 @@ fn locate_packages_dir_from_exe(current_exe: &Path) -> Result<PathBuf, Installer
         ),
         user_message: "Packages directory not found".to_string(),
     })
+}
+
+fn macos_app_bundle_dir(path: &Path) -> Option<PathBuf> {
+    path.ancestors()
+        .find(|ancestor| ancestor.extension().and_then(|value| value.to_str()) == Some("app"))
+        .map(Path::to_path_buf)
 }
 
 pub fn verify_package_hash(path: &Path) -> Result<(), InstallerError> {
@@ -398,6 +440,40 @@ fn blocked_dependency<'a>(
     })
 }
 
+#[derive(Debug, PartialEq, Eq)]
+pub enum VersionCheckOutcome {
+    Ok,
+    VerifyFailed,
+    /// `verify()` passed and a target version exists, but no version could be probed.
+    NoVersion,
+    BelowTarget {
+        post: String,
+        target: String,
+    },
+}
+
+pub fn evaluate_version_check(
+    verify_ok: bool,
+    post_version: Option<&str>,
+    target_version: Option<&str>,
+) -> VersionCheckOutcome {
+    if !verify_ok {
+        return VersionCheckOutcome::VerifyFailed;
+    }
+    if let Some(target) = target_version {
+        let Some(post) = post_version else {
+            return VersionCheckOutcome::NoVersion;
+        };
+        if detect::compare_semver(post, target) == Ordering::Less {
+            return VersionCheckOutcome::BelowTarget {
+                post: post.to_string(),
+                target: target.to_string(),
+            };
+        }
+    }
+    VersionCheckOutcome::Ok
+}
+
 fn install_report_dir() -> Option<PathBuf> {
     #[cfg(target_os = "windows")]
     {
@@ -427,8 +503,8 @@ mod tests {
     use crate::types::{DetectResult, InstallResult, InstallerError};
 
     use super::{
-        BoxFuture, ToolInstaller, blocked_dependency, format_error_message,
-        locate_packages_dir_from_exe, verify_package_hash_in_packages_dir,
+        BoxFuture, ToolInstaller, VersionCheckOutcome, blocked_dependency, evaluate_version_check,
+        format_error_message, locate_packages_dir_from_exe, verify_package_hash_in_packages_dir,
     };
 
     fn test_lock() -> &'static Mutex<()> {
@@ -463,6 +539,23 @@ mod tests {
         let _guard = test_lock().lock().expect("lock tests");
         let root = unique_temp_dir();
         let (exe_path, packages_dir) = create_fake_exe_layout(&root);
+
+        let located = locate_packages_dir_from_exe(&exe_path).expect("locate packages dir");
+        assert_eq!(located, packages_dir);
+
+        fs::remove_dir_all(&root).expect("cleanup temp dir");
+    }
+
+    #[test]
+    fn test_locate_packages_dir_next_to_macos_app_bundle() {
+        let _guard = test_lock().lock().expect("lock tests");
+        let root = unique_temp_dir();
+        let app_macos_dir = root.join("zm_tools.app").join("Contents").join("MacOS");
+        let packages_dir = root.join("packages");
+        fs::create_dir_all(&app_macos_dir).expect("create app macos dir");
+        fs::create_dir_all(&packages_dir).expect("create packages dir");
+        let exe_path = app_macos_dir.join("gui-installer");
+        fs::write(&exe_path, b"test").expect("create fake app executable");
 
         let located = locate_packages_dir_from_exe(&exe_path).expect("locate packages dir");
         assert_eq!(located, packages_dir);
@@ -556,5 +649,71 @@ mod tests {
 
         let blocked = blocked_dependency(&DummyInstaller, &completed).expect("dependency blocked");
         assert_eq!(blocked.name, "Node.js");
+    }
+
+    #[test]
+    fn evaluate_version_check_ok_when_equal() {
+        assert_eq!(
+            evaluate_version_check(true, Some("1.2.3"), Some("1.2.3")),
+            VersionCheckOutcome::Ok
+        );
+    }
+
+    #[test]
+    fn evaluate_version_check_ok_when_newer() {
+        assert_eq!(
+            evaluate_version_check(true, Some("2.0.0"), Some("1.2.3")),
+            VersionCheckOutcome::Ok
+        );
+    }
+
+    #[test]
+    fn evaluate_version_check_ok_when_no_target() {
+        // No target means we can't enforce — any detected version passes.
+        assert_eq!(
+            evaluate_version_check(true, Some("0.0.1"), None),
+            VersionCheckOutcome::Ok
+        );
+    }
+
+    #[test]
+    fn evaluate_version_check_below_target_is_reported() {
+        let outcome = evaluate_version_check(true, Some("1.0.0"), Some("2.0.0"));
+        match outcome {
+            VersionCheckOutcome::BelowTarget { post, target } => {
+                assert_eq!(post, "1.0.0");
+                assert_eq!(target, "2.0.0");
+            }
+            other => panic!("expected BelowTarget, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn evaluate_version_check_verify_failed_wins() {
+        // If verify fails, we don't claim success even if the version matches.
+        assert_eq!(
+            evaluate_version_check(false, Some("1.2.3"), Some("1.2.3")),
+            VersionCheckOutcome::VerifyFailed
+        );
+    }
+
+    #[test]
+    fn evaluate_version_check_missing_version_with_target_fails() {
+        // verify() returned true but command_version() produced nothing —
+        // with a target version, this is the "fake success" case and must be rejected.
+        assert_eq!(
+            evaluate_version_check(true, None, Some("1.2.3")),
+            VersionCheckOutcome::NoVersion
+        );
+    }
+
+    #[test]
+    fn evaluate_version_check_missing_version_without_target_succeeds() {
+        // Some installers can only prove presence. Without a target version,
+        // preserve the old success behavior when verify() passed.
+        assert_eq!(
+            evaluate_version_check(true, None, None),
+            VersionCheckOutcome::Ok
+        );
     }
 }

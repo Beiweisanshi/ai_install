@@ -64,6 +64,40 @@ Successful builds should produce:
 - Raw build output: `D:\ai_tools_tmp\tauri-target\x86_64-pc-windows-gnu\release\gui-installer.exe`
 - Deliverable copy: `D:\work\ai_部署\dist\gui-installer.exe`
 
+
+
+## macOS Build Path
+
+macOS GUI packages must be built on a Mac. Tauri's DMG flow runs the macOS native bundler and should not be treated as a Windows cross-compile target.
+
+Run in `gui-installer/` on macOS:
+
+```bash
+npm run build:macos
+```
+
+For a universal Apple Silicon + Intel package, install both Rust Apple targets on the Mac and run:
+
+```bash
+MACOS_TARGET=universal-apple-darwin npm run build:macos
+```
+
+Equivalent direct command:
+
+```bash
+npx tauri build --bundles dmg
+```
+
+The repository script copies the generated DMG to `dist/`, writes `dist/app-version.json`, copies `gui-installer/checksums.json` when present, and removes stale `dist/*.next*` / `dist/_tmp*` artifacts.
+
+Expected macOS output:
+
+- Raw Tauri bundle: `gui-installer/src-tauri/target/release/bundle/dmg/*.dmg`
+- Deliverable copy: `dist/zm_tools-0.1.0-macos-<arch|universal>.dmg`
+
+When shipping local dependency packages with the app, place `packages/` next to `zm_tools.app` after installation or next to the app bundle before first run. The backend also checks `zm_tools.app/Contents/Resources/packages` for bundled resources.
+
+
 ## Version Banner Metadata
 
 The GUI now shows the installer's current version and the latest available version.
