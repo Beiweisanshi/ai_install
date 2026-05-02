@@ -20,7 +20,7 @@
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'"
+      "csp": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http: https:; frame-src https://challenges.cloudflare.com"
     }
   },
   "bundle": {

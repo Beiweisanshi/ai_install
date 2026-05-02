@@ -156,6 +156,8 @@ impl ToolInstaller for CCSwitchInstallerMac {
                 upgradable: false,
                 installable: true,
                 unavailable_reason: None,
+                required: false,
+                group: "tool".to_string(),
             }
         })
     }
@@ -382,6 +384,13 @@ fn detect_result(name: &str, version: Option<String>) -> DetectResult {
         upgradable: false,
         installable: true,
         unavailable_reason: None,
+        required: matches!(name, "Git" | "Node.js"),
+        group: if matches!(name, "Git") {
+            "vcs"
+        } else {
+            "runtime"
+        }
+        .to_string(),
     }
 }
 

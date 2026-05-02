@@ -33,7 +33,7 @@ describe("ToolCard", () => {
       currentVersion: "1.0.0",
       availableVersion: "1.1.0",
       expectedLabel: "可升级",
-      expectedVersion: "1.0.0 → 1.1.0",
+      expectedVersion: "1.0.0 -> 1.1.0",
     },
     {
       status: "success" as const,
@@ -47,7 +47,7 @@ describe("ToolCard", () => {
       currentVersion: undefined,
       availableVersion: undefined,
       expectedLabel: "失败",
-      expectedVersion: "—",
+      expectedVersion: "-",
     },
   ])("renders $status state", ({ status, currentVersion, availableVersion, expectedLabel, expectedVersion }) => {
     render(
@@ -116,7 +116,7 @@ describe("ToolCard", () => {
       <ToolCard
         checked={true}
         currentVersion="1.0.0"
-        name="Claude Code"
+        name="Claude CLI"
         onToggle={vi.fn()}
         progress={45}
         status="installing"

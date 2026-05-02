@@ -1,6 +1,8 @@
+mod backend;
 mod commands;
 mod config;
 mod installer;
+mod terminal;
 mod types;
 mod version;
 
@@ -69,6 +71,9 @@ pub fn run() {
             commands::get_app_version_info,
             commands::list_blocking_processes,
             commands::kill_blocking_processes,
+            commands::launch_ai_tool,
+            commands::backend_request,
+            commands::open_external_url,
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

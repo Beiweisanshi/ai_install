@@ -40,19 +40,18 @@ function getVersionText(
   detailText?: string,
 ) {
   if (detailText) return detailText;
-
   const isInstalled = status === "installed" || status === "upgradable";
 
   if (currentVersion && availableVersion) {
     if (currentVersion === availableVersion) {
       return `${currentVersion}（最新）`;
     }
-    return `${currentVersion} → ${availableVersion}`;
+    return `${currentVersion} -> ${availableVersion}`;
   }
 
   if (currentVersion) return currentVersion;
   if (availableVersion) return isInstalled ? availableVersion : `可安装 ${availableVersion}`;
-  return "—";
+  return "-";
 }
 
 function ToolCard({
@@ -71,10 +70,8 @@ function ToolCard({
 
   return (
     <label
-      className={`block rounded-xl border transition-all duration-200 ${
-        disabled
-          ? "cursor-not-allowed opacity-50"
-          : "cursor-pointer hover:shadow-md"
+      className={`block rounded-lg border transition-all duration-200 ${
+        disabled ? "cursor-not-allowed opacity-50" : "cursor-pointer hover:shadow-md"
       }`}
       style={{
         background: checked && !disabled ? theme.card : theme.bgSecondary,
@@ -83,7 +80,6 @@ function ToolCard({
       }}
     >
       <div className="flex items-center gap-3.5 px-4 py-3.5">
-        {/* Custom checkbox */}
         <div className="relative flex shrink-0 items-center">
           <input
             checked={checked}
@@ -100,14 +96,19 @@ function ToolCard({
             }}
           >
             {checked && (
-              <svg className="h-3 w-3 text-white" fill="none" viewBox="0 0 12 12" stroke="currentColor" strokeWidth="2">
+              <svg
+                className="h-3 w-3 text-white"
+                fill="none"
+                stroke="currentColor"
+                strokeWidth="2"
+                viewBox="0 0 12 12"
+              >
                 <path d="M2.5 6L5 8.5L9.5 3.5" strokeLinecap="round" strokeLinejoin="round" />
               </svg>
             )}
           </div>
         </div>
 
-        {/* Content */}
         <div className="min-w-0 flex-1">
           <div className="flex items-center justify-between gap-3">
             <div className="min-w-0">
@@ -129,17 +130,13 @@ function ToolCard({
         </div>
       </div>
 
-      {/* Progress bar */}
       {status === "installing" && (
         <div className="px-4 pb-3">
-          <div className="flex items-center justify-between text-[10px] mb-1" style={{ color: theme.textMuted }}>
+          <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: theme.textMuted }}>
             <span>安装中</span>
             <span>{percent}%</span>
           </div>
-          <div
-            className="h-1 w-full overflow-hidden rounded-full"
-            style={{ background: theme.bgTertiary }}
-          >
+          <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: theme.bgTertiary }}>
             <div
               className="h-full rounded-full transition-[width] duration-500 ease-out"
               style={{

@@ -1,5 +1,4 @@
 use std::cmp::Ordering;
-use std::env;
 use std::path::{Path, PathBuf};
 use std::process::{Output, Stdio};
 use std::thread;
@@ -122,14 +121,8 @@ pub fn detect_all_tools(packages_dir: Option<&Path>) -> Vec<DetectResult> {
     TOOLS
         .iter()
         .map(|tool| {
-            let (installed, current_version) = if tool.name == "CC-Switch" {
-                let version = detect_tool_version(tool.cmd, tool.version_args);
-                let found = cc_switch_installed() || version.is_some();
-                (found, version)
-            } else {
-                let version = detect_tool_version(tool.cmd, tool.version_args);
-                (version.is_some(), version)
-            };
+            let version = detect_tool_version(tool.cmd, tool.version_args);
+            let (installed, current_version) = (version.is_some(), version);
 
             let available_version = match tool.npm_pkg {
                 Some(pkg) => get_npm_available_version(pkg),
@@ -159,6 +152,8 @@ pub fn detect_all_tools(packages_dir: Option<&Path>) -> Vec<DetectResult> {
                 upgradable,
                 installable,
                 unavailable_reason,
+                required: tool.required,
+                group: tool.group.to_string(),
             }
         })
         .collect()
@@ -319,42 +314,6 @@ fn get_npm_available_version_curl(url: &str, curl_program: &str) -> Option<Strin
         .get("version")
         .and_then(|version| version.as_str())
         .map(ToString::to_string)
-}
-
-fn cc_switch_installed() -> bool {
-    if let Some(path) = cc_switch_windows_path() {
-        if path.is_file() {
-            return true;
-        }
-    }
-
-    if cfg!(target_os = "macos") {
-        let pattern = Pattern::new("*[Cc][Cc]*[Ss]witch*.app");
-        if let (Ok(compiled), Ok(entries)) = (pattern, std::fs::read_dir("/Applications")) {
-            return entries.flatten().any(|entry| {
-                entry
-                    .file_name()
-                    .to_str()
-                    .is_some_and(|name| compiled.matches(name))
-            });
-        }
-    }
-
-    false
-}
-
-fn cc_switch_windows_path() -> Option<PathBuf> {
-    let local_app_data = env::var_os("LOCALAPPDATA")?;
-    let programs_dir = PathBuf::from(local_app_data).join("Programs");
-
-    [
-        programs_dir.join("CC Switch").join("cc-switch.exe"),
-        programs_dir.join("CC Switch").join("CC Switch.exe"),
-        programs_dir.join("cc-switch").join("cc-switch.exe"),
-        programs_dir.join("cc-switch").join("CC Switch.exe"),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
 }
 
 #[cfg(test)]

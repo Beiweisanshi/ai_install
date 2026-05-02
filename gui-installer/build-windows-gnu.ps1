@@ -44,6 +44,22 @@ function Remove-IfExists {
   }
 }
 
+function Resolve-RequiredTool {
+  param(
+    [Parameter(Mandatory = $true)]
+    [string[]]$Names
+  )
+
+  foreach ($name in $Names) {
+    $path = Join-Path $mingwBin $name
+    if (Test-Path $path) {
+      return $path
+    }
+  }
+
+  throw "Required MinGW tool not found. Tried: $($Names -join ', ')"
+}
+
 if (-not (Test-Path $mingwBin)) {
   throw "MinGW toolchain not found: $mingwBin"
 }
@@ -61,7 +77,12 @@ $env:CARGO_BUILD_TARGET = "x86_64-pc-windows-gnu"
 $env:CARGO_TARGET_X86_64_PC_WINDOWS_GNU_LINKER = Join-Path $mingwBin "x86_64-w64-mingw32-gcc.exe"
 $env:CC_x86_64_pc_windows_gnu = Join-Path $mingwBin "x86_64-w64-mingw32-gcc.exe"
 $env:CXX_x86_64_pc_windows_gnu = Join-Path $mingwBin "x86_64-w64-mingw32-g++.exe"
-$env:AR_x86_64_pc_windows_gnu = Join-Path $mingwBin "x86_64-w64-mingw32-ar.exe"
+$env:AR_x86_64_pc_windows_gnu = Resolve-RequiredTool @(
+  "x86_64-w64-mingw32-ar.exe",
+  "ar.exe",
+  "gcc-ar.exe",
+  "x86_64-w64-mingw32-gcc-ar.exe"
+)
 $env:CARGO_INCREMENTAL = "0"
 
 Set-Location $projectRoot

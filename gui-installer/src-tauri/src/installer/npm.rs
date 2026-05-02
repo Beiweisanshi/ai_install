@@ -46,6 +46,15 @@ impl NpmCliInstaller {
             pkg: "@google/gemini-cli",
         }
     }
+
+    pub const fn opencode() -> Self {
+        Self {
+            name: "OpenCode",
+            cmd: "opencode",
+            args: &["--version"],
+            pkg: "opencode-ai",
+        }
+    }
 }
 
 impl ToolInstaller for NpmCliInstaller {
@@ -281,6 +290,8 @@ fn detect_result(name: &str, version: Option<String>) -> DetectResult {
         upgradable: false,
         installable: true,
         unavailable_reason: None,
+        required: false,
+        group: "npm".to_string(),
     }
 }
 

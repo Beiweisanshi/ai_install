@@ -8,31 +8,37 @@ import type { DetectResult } from "../types";
 
 const tools: DetectResult[] = [
   {
-    name: "Claude Code",
+    name: "Claude CLI",
     installed: false,
     current_version: null,
     available_version: "1.0.0",
     upgradable: false,
     installable: true,
     unavailable_reason: null,
+    required: false,
+    group: "npm",
   },
   {
-    name: "CC-Switch",
+    name: "OpenCode",
     installed: true,
     current_version: "1.0.0",
     available_version: "1.1.0",
     upgradable: true,
     installable: true,
     unavailable_reason: null,
+    required: false,
+    group: "npm",
   },
   {
     name: "Codex CLI",
-    installed: false,
-    current_version: null,
+    installed: true,
+    current_version: "0.9.0",
     available_version: "0.9.0",
     upgradable: false,
     installable: true,
     unavailable_reason: null,
+    required: false,
+    group: "npm",
   },
   {
     name: "Nushell",
@@ -42,6 +48,8 @@ const tools: DetectResult[] = [
     upgradable: false,
     installable: false,
     unavailable_reason: "Missing local package",
+    required: false,
+    group: "runtime",
   },
 ];
 
@@ -50,33 +58,43 @@ describe("ToolList", () => {
     render(
       <ToolList
         installing={false}
+        onBack={vi.fn()}
         onDeselectAll={vi.fn()}
         onSelectAll={vi.fn()}
         onStartInstall={vi.fn()}
         onToggle={vi.fn()}
         progress={{}}
-        selected={new Set(["Claude Code", "CC-Switch"])}
+        selected={new Set(["Claude CLI", "OpenCode"])}
         tools={tools}
       />,
     );
 
-    expect(screen.getByText("zm_tools")).toBeInTheDocument();
-    expect(screen.getByText("4 个工具")).toBeInTheDocument();
+    expect(screen.getByText("安装与升级")).toBeInTheDocument();
+    expect(screen.getByText("4 个组件")).toBeInTheDocument();
     expect(screen.getAllByRole("checkbox")).toHaveLength(4);
     expect(screen.getByRole("button", { name: "开始安装" })).toBeInTheDocument();
   });
 
-  it("supports select all and clear for installable tools only", async () => {
+  it("supports select all and clear for installable pending tools only", async () => {
     const user = userEvent.setup();
 
     function Harness() {
-      const [selected, setSelected] = useState<Set<string>>(new Set(["Claude Code"]));
+      const [selected, setSelected] = useState<Set<string>>(new Set(["Claude CLI"]));
 
       return (
         <ToolList
           installing={false}
+          onBack={vi.fn()}
           onDeselectAll={() => setSelected(new Set())}
-          onSelectAll={() => setSelected(new Set(tools.filter((tool) => tool.installable).map((tool) => tool.name)))}
+          onSelectAll={() =>
+            setSelected(
+              new Set(
+                tools
+                  .filter((tool) => tool.installable && (!tool.installed || tool.upgradable))
+                  .map((tool) => tool.name),
+              ),
+            )
+          }
           onStartInstall={vi.fn()}
           onToggle={(name) =>
             setSelected((current) => {
@@ -98,25 +116,26 @@ describe("ToolList", () => {
 
     render(<Harness />);
 
-    expect(screen.getByText("已选 1")).toBeInTheDocument();
+    expect(screen.getByText("已选择 1")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "全选" }));
-    expect(screen.getByText("已选 3")).toBeInTheDocument();
+    expect(screen.getByText("已选择 2")).toBeInTheDocument();
 
     await user.click(screen.getByRole("button", { name: "清空" }));
-    expect(screen.getByText("已选 0")).toBeInTheDocument();
+    expect(screen.getByText("已选择 0")).toBeInTheDocument();
   });
 
   it("disables unavailable tools", () => {
     render(
       <ToolList
         installing={false}
+        onBack={vi.fn()}
         onDeselectAll={vi.fn()}
         onSelectAll={vi.fn()}
         onStartInstall={vi.fn()}
         onToggle={vi.fn()}
         progress={{}}
-        selected={new Set(["Claude Code"])}
+        selected={new Set(["Claude CLI"])}
         tools={tools}
       />,
     );
@@ -133,12 +152,13 @@ describe("ToolList", () => {
     render(
       <ToolList
         installing={false}
+        onBack={vi.fn()}
         onDeselectAll={vi.fn()}
         onSelectAll={vi.fn()}
         onStartInstall={onStartInstall}
         onToggle={vi.fn()}
         progress={{}}
-        selected={new Set(["Claude Code"])}
+        selected={new Set(["Claude CLI"])}
         tools={tools}
       />,
     );

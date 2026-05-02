@@ -9,6 +9,7 @@ pub struct ToolInfo {
     pub version_args: &'static [&'static str],
     pub npm_pkg: Option<&'static str>,
     pub group: &'static str,
+    pub required: bool,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -20,6 +21,8 @@ pub struct DetectResult {
     pub upgradable: bool,
     pub installable: bool,
     pub unavailable_reason: Option<String>,
+    pub required: bool,
+    pub group: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -52,6 +55,12 @@ pub struct ConfigEntry {
     pub tool_name: String,
     pub api_url: Option<String>,
     pub api_key: Option<String>,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct EnvVar {
+    pub name: String,
+    pub value: String,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -178,6 +187,7 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: None,
         group: "runtime",
+        required: false,
     },
     ToolInfo {
         name: "Git",
@@ -185,6 +195,7 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: None,
         group: "vcs",
+        required: true,
     },
     ToolInfo {
         name: "Node.js",
@@ -192,6 +203,7 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: None,
         group: "runtime",
+        required: true,
     },
     ToolInfo {
         name: "Claude CLI",
@@ -199,6 +211,7 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: Some("@anthropic-ai/claude-code"),
         group: "npm",
+        required: false,
     },
     ToolInfo {
         name: "Codex CLI",
@@ -206,6 +219,7 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: Some("@openai/codex"),
         group: "npm",
+        required: false,
     },
     ToolInfo {
         name: "Gemini CLI",
@@ -213,12 +227,14 @@ pub const TOOLS: [ToolInfo; 7] = [
         version_args: &["--version"],
         npm_pkg: Some("@google/gemini-cli"),
         group: "npm",
+        required: false,
     },
     ToolInfo {
-        name: "CC-Switch",
-        cmd: "cc-switch",
+        name: "OpenCode",
+        cmd: "opencode",
         version_args: &["--version"],
-        npm_pkg: None,
-        group: "tool",
+        npm_pkg: Some("opencode-ai"),
+        group: "npm",
+        required: false,
     },
 ];

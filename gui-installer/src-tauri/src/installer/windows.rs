@@ -230,158 +230,6 @@ impl ToolInstaller for NodeInstallerWin {
     }
 }
 
-pub struct CCSwitchInstallerWin;
-
-const CC_SWITCH_PACKAGE_PATTERNS: &[&str] = &[
-    "CC-Switch*.msi",
-    "CC-Switch*.exe",
-    "*cc-switch*.msi",
-    "*cc-switch*.exe",
-];
-
-/// Return the bundled CC-Switch package path (MSI preferred, EXE fallback).
-fn cc_switch_bundled_package() -> Option<PathBuf> {
-    let dir = windows_packages_dir().ok()?;
-    for pattern in CC_SWITCH_PACKAGE_PATTERNS {
-        if let Ok(package) = find_package(&dir, pattern) {
-            return Some(package);
-        }
-    }
-    None
-}
-
-fn cc_switch_target_version_sync() -> Option<String> {
-    let package = cc_switch_bundled_package()?;
-    let filename = package.file_name()?.to_str()?;
-    parse_version_from_filename(filename)
-}
-
-/// Read a file's FileVersion resource using PowerShell.
-fn read_file_version(path: &Path) -> Option<String> {
-    let path_str = powershell_single_quoted(&path.to_string_lossy());
-    let script = format!(
-        "$ErrorActionPreference='SilentlyContinue'; (Get-Item '{path_str}').VersionInfo.FileVersion"
-    );
-    let raw = run_powershell_script(&script)?;
-    if raw.is_empty() {
-        return None;
-    }
-    parse_version_from_filename(&raw).or(Some(raw))
-}
-
-fn cc_switch_current_version() -> Option<String> {
-    let exe = cc_switch_executable_path()?;
-    read_file_version(&exe)
-}
-
-impl ToolInstaller for CCSwitchInstallerWin {
-    fn name(&self) -> &str {
-        "CC-Switch"
-    }
-
-    fn detect(&self) -> BoxFuture<'_, DetectResult> {
-        Box::pin(async move {
-            let installed = cc_switch_executable_path().is_some();
-            let current_version = if installed {
-                cc_switch_current_version()
-            } else {
-                None
-            };
-            DetectResult {
-                name: self.name().to_string(),
-                installed,
-                current_version,
-                available_version: None,
-                upgradable: false,
-                installable: true,
-                unavailable_reason: None,
-            }
-        })
-    }
-
-    fn target_version(&self) -> BoxFuture<'_, Option<String>> {
-        Box::pin(async move { cc_switch_target_version_sync() })
-    }
-
-    fn install(&self, _app: &AppHandle) -> BoxFuture<'_, Result<InstallResult, InstallerError>> {
-        Box::pin(async move {
-            let current = cc_switch_current_version();
-            let target = cc_switch_target_version_sync();
-            if !is_upgrade_needed(current.as_deref(), target.as_deref()) {
-                return Ok(success_result(
-                    self.name(),
-                    current,
-                    "CC-Switch already up to date",
-                ));
-            }
-
-            let packages_dir = windows_packages_dir()?;
-            let package = match find_package(&packages_dir, "CC-Switch*.msi") {
-                Ok(path) => path,
-                Err(_) => find_package(&packages_dir, "*cc-switch*.exe")?,
-            };
-
-            verify_package_hash(&package)?;
-            unblock_file(&package);
-
-            let status = if extension_is(&package, "msi") {
-                run_msi_elevated(&package, &["/qn", "/norestart"]).map_err(|error| {
-                    install_failed(
-                        self.name(),
-                        format!(
-                            "failed to launch elevated msiexec for {}: {error}",
-                            package.display()
-                        ),
-                    )
-                })?
-            } else {
-                run_elevated(&package, &[]).map_err(|error| {
-                    install_failed(
-                        self.name(),
-                        format!(
-                            "failed to launch elevated installer {}: {error}",
-                            package.display()
-                        ),
-                    )
-                })?
-            };
-
-            ensure_success(self.name(), &package, status)?;
-
-            Ok(success_result(
-                self.name(),
-                cc_switch_current_version(),
-                format!("Installed CC-Switch from {}", package.display()),
-            ))
-        })
-    }
-
-    fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move {
-            // CC-Switch has no CLI `--version`; fall back to "executable exists +
-            // (if target known) FileVersion >= target".
-            let target = cc_switch_target_version_sync();
-            for attempt in 0..5 {
-                if cc_switch_executable_path().is_some() {
-                    let current = cc_switch_current_version();
-                    let meets = match (current.as_deref(), target.as_deref()) {
-                        (_, None) => true,
-                        (None, Some(_)) => false,
-                        (Some(c), Some(t)) => compare_semver(c, t) != Ordering::Less,
-                    };
-                    if meets {
-                        return true;
-                    }
-                }
-                if attempt + 1 < 5 {
-                    sleep(Duration::from_secs(3)).await;
-                }
-            }
-            false
-        })
-    }
-}
-
 pub fn refresh_path_win() -> Result<(), InstallerError> {
     let machine_path = read_registry_value(
         "HKLM\\System\\CurrentControlSet\\Control\\Session Manager\\Environment",
@@ -605,6 +453,13 @@ fn detect_result(name: &str, version: Option<String>) -> DetectResult {
         upgradable: false,
         installable: true,
         unavailable_reason: None,
+        required: matches!(name, "Git" | "Node.js"),
+        group: if matches!(name, "Git") {
+            "vcs"
+        } else {
+            "runtime"
+        }
+        .to_string(),
     }
 }
 
@@ -713,26 +568,6 @@ fn install_failed(tool_name: &str, detail: String) -> InstallerError {
 
 fn status_is_success(status: &ExitStatus) -> bool {
     status.success() || matches!(status.code(), Some(3010) | Some(1641))
-}
-
-fn cc_switch_executable_path() -> Option<PathBuf> {
-    let local_app_data = env::var_os("LOCALAPPDATA")?;
-    let programs_dir = PathBuf::from(local_app_data).join("Programs");
-
-    [
-        programs_dir.join("CC Switch").join("cc-switch.exe"),
-        programs_dir.join("CC Switch").join("CC Switch.exe"),
-        programs_dir.join("cc-switch").join("cc-switch.exe"),
-        programs_dir.join("cc-switch").join("CC Switch.exe"),
-    ]
-    .into_iter()
-    .find(|path| path.is_file())
-}
-
-fn extension_is(path: &Path, expected: &str) -> bool {
-    path.extension()
-        .and_then(|value| value.to_str())
-        .is_some_and(|value| value.eq_ignore_ascii_case(expected))
 }
 
 fn read_registry_value(key: &str, value_name: &str) -> Option<String> {

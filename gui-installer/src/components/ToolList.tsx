@@ -1,4 +1,5 @@
 import { Fragment } from "react";
+
 import ToolCard from "./ToolCard";
 import { theme } from "../styles/theme";
 import type { DetectResult } from "../types";
@@ -10,12 +11,17 @@ interface ToolListProps {
   onSelectAll: () => void;
   onDeselectAll: () => void;
   onStartInstall: () => void;
+  onBack: () => void;
   installing: boolean;
   progress: Record<string, { percent: number; stage: string }>;
   logs?: Record<string, string[]>;
 }
 
-function getToolStatus(tool: DetectResult, installing: boolean, progressEntry?: { percent: number; stage: string }) {
+function getToolStatus(
+  tool: DetectResult,
+  installing: boolean,
+  progressEntry?: { percent: number; stage: string },
+) {
   if (installing && progressEntry) {
     if (progressEntry.percent >= 100) {
       return progressEntry.stage === "failed" ? "failed" : "success";
@@ -40,28 +46,37 @@ function ToolList({
   onSelectAll,
   onDeselectAll,
   onStartInstall,
+  onBack,
   installing,
   progress,
   logs,
 }: ToolListProps) {
-  const installableTools = tools.filter((tool) => tool.installable);
+  const installableTools = tools.filter((tool) => tool.installable && (!tool.installed || tool.upgradable));
   const allSelected = installableTools.length > 0 && selected.size === installableTools.length;
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4">
-      {/* Header */}
       <div>
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
-              zm_tools
+              安装与升级
             </h1>
             <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
-              选择要安装或升级的工具
+              选择需要安装或升级的环境组件。
             </p>
           </div>
 
           <div className="flex items-center gap-1.5">
+            <button
+              className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150"
+              disabled={installing}
+              onClick={onBack}
+              style={{ color: theme.textMuted }}
+              type="button"
+            >
+              返回
+            </button>
             <button
               className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150"
               onClick={onSelectAll}
@@ -76,9 +91,7 @@ function ToolList({
             <button
               className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150"
               onClick={onDeselectAll}
-              style={{
-                color: theme.textMuted,
-              }}
+              style={{ color: theme.textMuted }}
               type="button"
             >
               清空
@@ -86,12 +99,8 @@ function ToolList({
           </div>
         </div>
 
-        {/* Stats bar */}
-        <div
-          className="mt-3 flex items-center gap-4 text-xs"
-          style={{ color: theme.textMuted }}
-        >
-          <span>{tools.length} 个工具</span>
+        <div className="mt-3 flex items-center gap-4 text-xs" style={{ color: theme.textMuted }}>
+          <span>{tools.length} 个组件</span>
           <span
             className="rounded-full px-2 py-0.5 font-medium"
             style={{
@@ -99,18 +108,18 @@ function ToolList({
               color: selected.size > 0 ? theme.accent : theme.textMuted,
             }}
           >
-            已选 {selected.size}
+            已选择 {selected.size}
           </span>
         </div>
       </div>
 
-      {/* Tool list */}
       <div className="min-h-0 flex-1 space-y-2 overflow-y-auto pr-1">
         {tools.map((tool) => {
           const progressEntry = progress[tool.name];
           const toolLogs = logs?.[tool.name] ?? [];
           const status = getToolStatus(tool, installing, progressEntry);
           const showLogs = installing && status === "installing" && toolLogs.length > 0;
+          const canSelect = tool.installable && (!tool.installed || tool.upgradable);
 
           return (
             <Fragment key={tool.name}>
@@ -119,7 +128,7 @@ function ToolList({
                 checked={selected.has(tool.name)}
                 currentVersion={tool.current_version ?? undefined}
                 detailText={tool.installable ? undefined : formatDetailText(tool.unavailable_reason)}
-                disabled={installing || !tool.installable}
+                disabled={installing || !canSelect}
                 name={tool.name}
                 onToggle={() => onToggle(tool.name)}
                 progress={progressEntry?.percent}
@@ -143,10 +152,9 @@ function ToolList({
         })}
       </div>
 
-      {/* Footer */}
       <div className="flex items-center justify-between pt-2">
         <p className="text-xs" style={{ color: theme.textMuted }}>
-          缺少安装包的工具不可选择
+          已安装且无需升级的组件会保持禁用，避免重复安装。
         </p>
 
         <button

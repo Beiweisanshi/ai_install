@@ -4,31 +4,26 @@ import { listen } from "@tauri-apps/api/event";
 
 import type {
   AppVersionInfo,
+  AppPhase,
   BlockingState,
-  ConfigEntry,
   DetectResult,
   InstallResult,
   ProgressEvent,
   RunningProc,
+  LaunchMode,
 } from "../types";
+import { loadDetectCache, saveDetectCache } from "../lib/storage";
 
-type Phase = "detecting" | "selecting" | "installing" | "configuring" | "summary";
-
-const CONFIGURABLE_TOOLS = ["Claude CLI", "Codex", "Codex CLI", "Gemini", "Gemini CLI"];
+const REQUIRED_TOOLS = ["Git", "Node.js"];
 
 const NPM_PKG_BY_TOOL: Record<string, string> = {
   "Claude CLI": "@anthropic-ai/claude-code",
   "Codex CLI": "@openai/codex",
   "Gemini CLI": "@google/gemini-cli",
+  OpenCode: "opencode-ai",
 };
 
 const MAX_LOG_LINES_PER_TOOL = 500;
-
-function hasConfigurableSuccess(results: InstallResult[]): boolean {
-  return results.some(
-    (r) => r.success && CONFIGURABLE_TOOLS.some((name) => r.name.includes(name)),
-  );
-}
 
 // Must stay in sync with the backend `InstallerError::Blocked` user_message
 // prefix in `src-tauri/src/installer/npm.rs`.
@@ -41,9 +36,14 @@ function isBlockedMessage(msg: string | undefined | null): boolean {
 }
 
 export function useInstaller() {
-  const [phase, setPhase] = useState<Phase>("detecting");
-  const [tools, setTools] = useState<DetectResult[]>([]);
-  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const cachedTools = loadDetectCache();
+  const [phase, setPhase] = useState<AppPhase>(() =>
+    cachedTools ? phaseForDetectedTools(cachedTools) : "detecting",
+  );
+  const [tools, setTools] = useState<DetectResult[]>(() => cachedTools ?? []);
+  const [selected, setSelected] = useState<Set<string>>(
+    () => new Set(defaultInstallSelection(cachedTools ?? []).map((tool) => tool.name)),
+  );
   const [progress, setProgress] = useState<Record<string, ProgressEvent>>({});
   const [logs, setLogs] = useState<Record<string, string[]>>({});
   const [results, setResults] = useState<InstallResult[]>([]);
@@ -51,27 +51,34 @@ export function useInstaller() {
   const [error, setError] = useState<string | null>(null);
   const [blocking, setBlocking] = useState<BlockingState | null>(null);
 
-  const startDetect = useCallback(async () => {
-    setPhase("detecting");
+  const detectTools = useCallback(async (background = false) => {
+    if (!background) {
+      setPhase("detecting");
+    }
     setError(null);
 
     try {
       const detected = await invoke<DetectResult[]>("detect_tools");
+      saveDetectCache(detected);
       setTools(detected);
 
       const defaultSelected = new Set(
-        detected
-          .filter((tool) => tool.installable && (!tool.installed || tool.upgradable))
-          .map((tool) => tool.name),
+        defaultInstallSelection(detected).map((tool) => tool.name),
       );
 
       setSelected(defaultSelected);
-      setPhase("selecting");
+      setPhase(phaseForDetectedTools(detected));
     } catch (e) {
       setError(String(e));
-      setPhase("selecting");
+      if (!background) {
+        setPhase("selecting");
+      }
     }
   }, []);
+
+  const startDetect = useCallback(async () => {
+    await detectTools(false);
+  }, [detectTools]);
 
   const toggleTool = useCallback((name: string) => {
     setSelected((prev) => {
@@ -88,7 +95,7 @@ export function useInstaller() {
   }, []);
 
   const selectAll = useCallback(() => {
-    setSelected(new Set(tools.filter((tool) => tool.installable).map((tool) => tool.name)));
+    setSelected(new Set(tools.filter((tool) => tool.installable && (!tool.installed || tool.upgradable)).map((tool) => tool.name)));
   }, [tools]);
 
   const deselectAll = useCallback(() => {
@@ -111,6 +118,7 @@ export function useInstaller() {
 
       try {
         const refreshed = await invoke<DetectResult[]>("detect_tools");
+        saveDetectCache(refreshed);
         setTools(refreshed);
       } catch {
         // Non-critical: summary still works with stale detect data
@@ -136,16 +144,39 @@ export function useInstaller() {
         }
       }
 
-      setPhase(hasConfigurableSuccess(installResults) ? "configuring" : "summary");
+      const failed = installResults.filter((result) => !result.success);
+      setError(failed.length > 0 ? `${failed.length} 个组件安装失败，请查看安装日志或重试。` : null);
+      setPhase("dashboard");
     } catch (e) {
       setError(String(e));
-      setPhase("summary");
+      setPhase("dashboard");
     }
   }, []);
 
   const startInstall = useCallback(async () => {
     await runInstall(Array.from(selected));
   }, [runInstall, selected]);
+
+  const openInstall = useCallback((toolName?: string) => {
+    if (toolName) {
+      setSelected(new Set([toolName]));
+    } else {
+      setSelected(new Set(defaultInstallSelection(tools).map((tool) => tool.name)));
+    }
+    setPhase("selecting");
+  }, [tools]);
+
+  const goDashboard = useCallback(() => {
+    setPhase("dashboard");
+  }, []);
+
+  const launchTool = useCallback(async (tool: string, mode: LaunchMode) => {
+    try {
+      await invoke("launch_ai_tool", { tool, mode });
+    } catch (e) {
+      setError(String(e));
+    }
+  }, []);
 
   const killBlockingAndRetry = useCallback(async () => {
     if (!blocking) return;
@@ -168,23 +199,9 @@ export function useInstaller() {
     setBlocking(null);
   }, []);
 
-  const saveConfig = useCallback(async (entries: ConfigEntry[]) => {
-    try {
-      await invoke("save_config", { entries });
-      setPhase("summary");
-    } catch (e) {
-      setError(String(e));
-      setPhase("summary");
-    }
-  }, []);
-
-  const skipConfig = useCallback(() => {
-    setPhase("summary");
-  }, []);
-
   useEffect(() => {
-    void startDetect();
-  }, [startDetect]);
+    void detectTools(Boolean(cachedTools));
+  }, [detectTools]);
 
   useEffect(() => {
     let cancelled = false;
@@ -258,11 +275,29 @@ export function useInstaller() {
     selectAll,
     deselectAll,
     startDetect,
+    openInstall,
+    goDashboard,
     startInstall,
-    saveConfig,
-    skipConfig,
+    launchTool,
     killBlockingAndRetry,
     retryBlocking,
     dismissBlocking,
   };
+}
+
+function hasMissingRequiredTools(tools: DetectResult[]): boolean {
+  return tools.some((tool) => REQUIRED_TOOLS.includes(tool.name) && !tool.installed);
+}
+
+function phaseForDetectedTools(tools: DetectResult[]): AppPhase {
+  return hasMissingRequiredTools(tools) ? "selecting" : "dashboard";
+}
+
+function defaultInstallSelection(tools: DetectResult[]): DetectResult[] {
+  const missingRequired = tools.filter(
+    (tool) => REQUIRED_TOOLS.includes(tool.name) && !tool.installed && tool.installable,
+  );
+  if (missingRequired.length > 0) return missingRequired;
+
+  return tools.filter((tool) => tool.installable && (!tool.installed || tool.upgradable));
 }

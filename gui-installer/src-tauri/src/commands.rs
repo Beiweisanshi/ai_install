@@ -5,19 +5,16 @@ use tauri::AppHandle;
 use crate::config;
 use crate::installer::{self, ToolInstaller};
 use crate::types::{
-    AppVersionInfo, ConfigEntry, DetectResult, InstallResult, InstallerError, RunningProc,
+    AppVersionInfo, ConfigEntry, DetectResult, EnvVar, InstallResult, InstallerError, RunningProc,
 };
 use crate::version;
+use crate::backend::{BackendRequest, BackendResponse};
 
 #[cfg(target_os = "macos")]
-use crate::installer::macos::{
-    CCSwitchInstallerMac, GitInstallerMac, NodeInstallerMac, NushellInstallerMac,
-};
+use crate::installer::macos::{GitInstallerMac, NodeInstallerMac, NushellInstallerMac};
 use crate::installer::npm::NpmCliInstaller;
 #[cfg(target_os = "windows")]
-use crate::installer::windows::{
-    CCSwitchInstallerWin, GitInstallerWin, NodeInstallerWin, NushellInstallerWin,
-};
+use crate::installer::windows::{GitInstallerWin, NodeInstallerWin, NushellInstallerWin};
 
 #[tauri::command]
 pub async fn detect_tools(_app: AppHandle) -> Result<Vec<DetectResult>, String> {
@@ -88,6 +85,61 @@ pub async fn kill_blocking_processes(pids: Vec<u32>) -> Result<usize, String> {
     }
 }
 
+#[tauri::command]
+pub async fn launch_ai_tool(
+    tool: String,
+    mode: String,
+    cwd: Option<String>,
+    env_vars: Option<Vec<EnvVar>>,
+) -> Result<(), String> {
+    crate::terminal::launch_ai_tool(&tool, &mode, cwd, env_vars)
+}
+
+#[tauri::command]
+pub async fn backend_request(input: BackendRequest) -> Result<BackendResponse, String> {
+    crate::backend::request_backend(input).await
+}
+
+#[tauri::command]
+pub async fn open_external_url(url: String) -> Result<(), String> {
+    if !(url.starts_with("http://") || url.starts_with("https://")) {
+        return Err("Unsupported URL".to_string());
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "", &url])
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to open browser: {error}"))
+    }
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(&url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to open browser: {error}"))
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(&url)
+            .spawn()
+            .map(|_| ())
+            .map_err(|error| format!("Failed to open browser: {error}"))
+    }
+
+    #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
+    {
+        let _ = url;
+        Err("Unsupported platform".to_string())
+    }
+}
+
 fn push_selected<T>(
     selected: &HashSet<&str>,
     installers: &mut Vec<Box<dyn ToolInstaller>>,
@@ -148,7 +200,12 @@ fn build_windows_installers(selected: &HashSet<&str>) -> Vec<Box<dyn ToolInstall
         "Gemini CLI",
         NpmCliInstaller::gemini(),
     );
-    push_selected(selected, &mut installers, "CC-Switch", CCSwitchInstallerWin);
+    push_selected(
+        selected,
+        &mut installers,
+        "OpenCode",
+        NpmCliInstaller::opencode(),
+    );
 
     installers
 }
@@ -178,7 +235,12 @@ fn build_macos_installers(selected: &HashSet<&str>) -> Vec<Box<dyn ToolInstaller
         "Gemini CLI",
         NpmCliInstaller::gemini(),
     );
-    push_selected(selected, &mut installers, "CC-Switch", CCSwitchInstallerMac);
+    push_selected(
+        selected,
+        &mut installers,
+        "OpenCode",
+        NpmCliInstaller::opencode(),
+    );
 
     installers
 }

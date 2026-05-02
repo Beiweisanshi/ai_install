@@ -611,6 +611,8 @@ mod tests {
                         upgradable: false,
                         installable: true,
                         unavailable_reason: None,
+                        required: false,
+                        group: "test".to_string(),
                     }
                 })
             }

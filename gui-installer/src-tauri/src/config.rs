@@ -12,29 +12,25 @@ use crate::installer::windows::hidden_command;
 const MANAGED_BLOCK_MARKER: &str = "# --- AI Tools Installer managed ---";
 
 pub fn validate_config_entry(entry: &ConfigEntry) -> Result<(), InstallerError> {
-    let is_key_only = matches!(entry.tool_name.as_str(), "Gemini" | "Gemini CLI");
-
-    if !is_key_only {
-        let api_url = entry
-            .api_url
-            .as_deref()
-            .ok_or_else(|| InstallerError::InvalidInput {
-                detail: format!("missing api_url for {}", entry.tool_name),
-                user_message: "Invalid configuration input".to_string(),
-            })?;
-
-        if api_url.is_empty() {
-            return Err(InstallerError::InvalidInput {
-                detail: format!("api_url is empty for {}", entry.tool_name),
-                user_message: "Invalid configuration input".to_string(),
-            });
-        }
-
-        validate_url(api_url).map_err(|error| InstallerError::InvalidInput {
-            detail: format!("{} for {}", error.detail(), entry.tool_name),
+    let api_url = entry
+        .api_url
+        .as_deref()
+        .ok_or_else(|| InstallerError::InvalidInput {
+            detail: format!("missing api_url for {}", entry.tool_name),
             user_message: "Invalid configuration input".to_string(),
         })?;
+
+    if api_url.is_empty() {
+        return Err(InstallerError::InvalidInput {
+            detail: format!("api_url is empty for {}", entry.tool_name),
+            user_message: "Invalid configuration input".to_string(),
+        });
     }
+
+    validate_url(api_url).map_err(|error| InstallerError::InvalidInput {
+        detail: format!("{} for {}", error.detail(), entry.tool_name),
+        user_message: "Invalid configuration input".to_string(),
+    })?;
 
     let api_key = entry
         .api_key
@@ -115,6 +111,7 @@ pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError>
                 let api_key = required_field(&entry.api_key, "api_key", &entry.tool_name)?;
                 let api_url = required_field(&entry.api_url, "api_url", &entry.tool_name)?;
                 save_env_config("ANTHROPIC_API_KEY", api_key)?;
+                save_env_config("ANTHROPIC_AUTH_TOKEN", api_key)?;
                 save_env_config("ANTHROPIC_BASE_URL", api_url)?;
             }
             "Codex" | "Codex CLI" => {
@@ -125,7 +122,10 @@ pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError>
             }
             "Gemini" | "Gemini CLI" => {
                 let api_key = required_field(&entry.api_key, "api_key", &entry.tool_name)?;
+                let api_url = required_field(&entry.api_url, "api_url", &entry.tool_name)?;
                 save_env_config("GEMINI_API_KEY", api_key)?;
+                save_env_config("GOOGLE_GEMINI_BASE_URL", api_url)?;
+                save_env_config("GEMINI_MODEL", "gemini-2.0-flash")?;
             }
             other => {
                 return Err(InstallerError::InvalidInput {
