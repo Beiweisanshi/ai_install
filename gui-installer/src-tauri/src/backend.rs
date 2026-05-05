@@ -2,6 +2,16 @@ use std::collections::HashMap;
 
 use reqwest::header::{HeaderMap, HeaderName, HeaderValue};
 use serde::{Deserialize, Serialize};
+use url::Url;
+
+const STATIC_ALLOWED_HOSTS: &[&str] = &[
+    "localhost",
+    "127.0.0.1",
+    "challenges.cloudflare.com",
+    "registry.npmmirror.com",
+];
+
+const STRIPPED_REQUEST_HEADERS: &[&str] = &["cookie", "set-cookie", "host"];
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct BackendRequest {
@@ -46,17 +56,38 @@ pub async fn request_backend(input: BackendRequest) -> Result<BackendResponse, S
 }
 
 fn validate_url(url: &str) -> Result<(), String> {
-    if url.starts_with("http://") || url.starts_with("https://") {
-        Ok(())
-    } else {
-        Err("Backend URL must start with http:// or https://".to_string())
+    let parsed = Url::parse(url).map_err(|error| format!("Invalid backend URL: {error}"))?;
+    if !matches!(parsed.scheme(), "http" | "https") {
+        return Err("Backend URL must start with http:// or https://".to_string());
     }
+
+    let host = parsed
+        .host_str()
+        .ok_or_else(|| "Backend URL must include a host".to_string())?
+        .to_ascii_lowercase();
+
+    if is_allowed_host(&host) {
+        return Ok(());
+    }
+
+    Err(format!("URL not allowed: {host}"))
+}
+
+fn is_allowed_host(host: &str) -> bool {
+    let backend_host = option_env!("BACKEND_HOST")
+        .map(str::to_ascii_lowercase)
+        .filter(|value| !value.is_empty());
+
+    backend_host.as_deref() == Some(host) || STATIC_ALLOWED_HOSTS.contains(&host)
 }
 
 fn parse_headers(headers: Option<HashMap<String, String>>) -> Result<HeaderMap, String> {
     let mut map = HeaderMap::new();
 
     for (name, value) in headers.unwrap_or_default() {
+        if STRIPPED_REQUEST_HEADERS.contains(&name.to_ascii_lowercase().as_str()) {
+            continue;
+        }
         let name = HeaderName::from_bytes(name.as_bytes())
             .map_err(|error| format!("Invalid backend request header name: {error}"))?;
         let value = HeaderValue::from_str(&value)

@@ -28,6 +28,7 @@ dist/*.dll
 
 # Vitest build artifacts
 gui-installer/.vitest-build/
+gui-installer/.run-logs/
 
 # Temp files
 _tmp_*

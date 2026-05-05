@@ -1,3 +1,4 @@
+import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
 
 type ToolStatus =
@@ -23,14 +24,14 @@ interface ToolCardProps {
 }
 
 const statusConfig: Record<ToolStatus, { label: string; color: string; bg: string }> = {
-  not_installed: { label: "未安装", color: theme.textMuted, bg: theme.bgTertiary },
-  installed: { label: "已安装", color: theme.success, bg: theme.successLight },
-  upgradable: { label: "可升级", color: theme.accent, bg: theme.accentLight },
-  unavailable: { label: "不可用", color: theme.error, bg: theme.errorLight },
-  installing: { label: "安装中", color: theme.accent, bg: theme.accentLight },
-  success: { label: "成功", color: theme.success, bg: theme.successLight },
-  failed: { label: "失败", color: theme.error, bg: theme.errorLight },
-  skipped: { label: "已跳过", color: theme.textMuted, bg: theme.bgTertiary },
+  not_installed: { label: t("tool.status.notInstalled"), color: theme.textMuted, bg: theme.bgTertiary },
+  installed: { label: t("tool.status.installed"), color: theme.success, bg: theme.successLight },
+  upgradable: { label: t("tool.status.upgradable"), color: theme.accent, bg: theme.accentLight },
+  unavailable: { label: t("tool.status.unavailable"), color: theme.error, bg: theme.errorLight },
+  installing: { label: t("tool.status.installing"), color: theme.accent, bg: theme.accentLight },
+  success: { label: t("tool.status.success"), color: theme.success, bg: theme.successLight },
+  failed: { label: t("tool.status.failed"), color: theme.error, bg: theme.errorLight },
+  skipped: { label: t("tool.status.skipped"), color: theme.textMuted, bg: theme.bgTertiary },
 };
 
 function getVersionText(
@@ -44,13 +45,13 @@ function getVersionText(
 
   if (currentVersion && availableVersion) {
     if (currentVersion === availableVersion) {
-      return `${currentVersion}（最新）`;
+      return formatText("tool.version.latest", { version: currentVersion });
     }
     return `${currentVersion} -> ${availableVersion}`;
   }
 
   if (currentVersion) return currentVersion;
-  if (availableVersion) return isInstalled ? availableVersion : `可安装 ${availableVersion}`;
+  if (availableVersion) return isInstalled ? availableVersion : formatText("tool.version.installable", { version: availableVersion });
   return "-";
 }
 
@@ -133,7 +134,7 @@ function ToolCard({
       {status === "installing" && (
         <div className="px-4 pb-3">
           <div className="mb-1 flex items-center justify-between text-[10px]" style={{ color: theme.textMuted }}>
-            <span>安装中</span>
+            <span>{t("tool.status.installing")}</span>
             <span>{percent}%</span>
           </div>
           <div className="h-1 w-full overflow-hidden rounded-full" style={{ background: theme.bgTertiary }}>

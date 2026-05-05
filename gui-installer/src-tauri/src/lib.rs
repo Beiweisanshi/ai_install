@@ -1,7 +1,9 @@
 mod backend;
+mod channel_config;
 mod commands;
 mod config;
 mod installer;
+mod secure_store;
 mod terminal;
 mod types;
 mod version;
@@ -68,11 +70,21 @@ pub fn run() {
             commands::detect_tools,
             commands::install_tools,
             commands::save_config,
+            commands::apply_active_channel,
+            commands::read_active_settings,
             commands::get_app_version_info,
             commands::list_blocking_processes,
             commands::kill_blocking_processes,
+            commands::precheck_install,
             commands::launch_ai_tool,
             commands::backend_request,
+            commands::secure_session_get,
+            commands::secure_session_set,
+            commands::secure_session_clear,
+            commands::list_managed_env_vars,
+            commands::clear_managed_env_var,
+            commands::logs_dir,
+            commands::open_path,
             commands::open_external_url,
         ])
         .run(tauri::generate_context!())

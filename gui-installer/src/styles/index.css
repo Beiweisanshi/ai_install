@@ -1,5 +1,59 @@
 @import 'tailwindcss';
 
+:root {
+  --bg-primary: #F7F5F0;
+  --bg-secondary: #FFFFFF;
+  --bg-tertiary: #F0EDE6;
+  --bg-hover: #EBE8E1;
+  --card: #FFFFFF;
+  --card-border: #E8E4DD;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06);
+  --card-shadow-hover: 0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04);
+  --accent: #C4704B;
+  --accent-hover: #B5613C;
+  --accent-light: rgba(196,112,75,0.08);
+  --accent-medium: rgba(196,112,75,0.16);
+  --success: #1A8754;
+  --success-light: rgba(26,135,84,0.08);
+  --error: #D93025;
+  --error-light: rgba(217,48,37,0.08);
+  --warning: #B7791F;
+  --warning-light: rgba(183,121,31,0.10);
+  --text-primary: #1A1A1A;
+  --text-secondary: #5F6368;
+  --text-muted: #8A8F96;
+  --text-on-accent: #FFFFFF;
+  --border: #E8E4DD;
+  --divider: #F0EDE6;
+}
+
+[data-theme="dark"] {
+  --bg-primary: #181A1B;
+  --bg-secondary: #222426;
+  --bg-tertiary: #2D3033;
+  --bg-hover: #35393D;
+  --card: #222426;
+  --card-border: #3A3E42;
+  --card-shadow: 0 1px 3px rgba(0,0,0,0.28), 0 1px 2px rgba(0,0,0,0.22);
+  --card-shadow-hover: 0 4px 14px rgba(0,0,0,0.32), 0 2px 4px rgba(0,0,0,0.24);
+  --accent: #D8835C;
+  --accent-hover: #E09673;
+  --accent-light: rgba(216,131,92,0.16);
+  --accent-medium: rgba(216,131,92,0.24);
+  --success: #4BAA78;
+  --success-light: rgba(75,170,120,0.14);
+  --error: #F06A61;
+  --error-light: rgba(240,106,97,0.14);
+  --warning: #E0B44B;
+  --warning-light: rgba(224,180,75,0.14);
+  --text-primary: #F2EFE8;
+  --text-secondary: #C7C1B8;
+  --text-muted: #918C84;
+  --text-on-accent: #1A1A1A;
+  --border: #3A3E42;
+  --divider: #2D3033;
+}
+
 @font-face { font-family: 'Inter'; src: local('Inter'); }
 
 body {
@@ -7,8 +61,8 @@ body {
   font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
-  background: #F7F5F0;
-  color: #1A1A1A;
+  background: var(--bg-primary);
+  color: var(--text-primary);
   overflow: hidden;
 }
 
@@ -52,4 +106,31 @@ button:active:not(:disabled) {
 
 .animate-gentle-pulse {
   animation: gentle-pulse 2s ease-in-out infinite;
+}
+
+/* === Unified interactive surface ===
+ * Apply `btn` to any clickable element, plus one of `btn-primary`,
+ * `btn-secondary`, `btn-text`, or `btn-danger` for the visual tone.
+ * The hover/cursor/disabled rules below give every interactive element
+ * the same affordance regardless of where it lives. */
+.btn {
+  cursor: pointer;
+  transition: background-color 120ms ease, color 120ms ease, border-color 120ms ease, transform 80ms ease;
+}
+.btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.55;
+}
+.btn-primary                        { background: var(--accent);     color: var(--text-on-accent); }
+.btn-primary:hover:not(:disabled)   { background: var(--accent-hover); }
+.btn-secondary                      { background: var(--bg-tertiary); color: var(--text-secondary); }
+.btn-secondary:hover:not(:disabled) { background: var(--bg-hover); }
+.btn-text:hover:not(:disabled)      { color: var(--accent-hover); }
+.btn-danger                         { background: var(--error-light); color: var(--error); }
+.btn-danger:hover:not(:disabled)    { background: rgba(217,48,37,0.18); }
+
+/* Highlight inputs grouped within a labelled wrapper */
+.input-wrap:focus-within {
+  border-color: var(--accent) !important;
+  box-shadow: 0 0 0 3px var(--accent-light);
 }

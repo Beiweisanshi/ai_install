@@ -10,6 +10,7 @@ import {
   resetPassword,
   sendVerifyCode,
 } from "../lib/backendApi";
+import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
 import type { AuthSession, PublicSettings } from "../types";
 
@@ -25,12 +26,14 @@ declare global {
 }
 
 interface AuthPanelProps {
-  onAuthenticated: (session: AuthSession) => void;
+  onAuthenticated: (session: AuthSession) => void | Promise<void>;
+  rememberLogin: boolean;
+  onRememberLoginChange: (enabled: boolean) => void;
 }
 
 type AuthMode = "login" | "register" | "forgot" | "reset";
 
-function AuthPanel({ onAuthenticated }: AuthPanelProps) {
+function AuthPanel({ onAuthenticated, rememberLogin, onRememberLoginChange }: AuthPanelProps) {
   const [settings, setSettings] = useState<PublicSettings | null>(null);
   const [mode, setMode] = useState<AuthMode>("login");
   const [email, setEmail] = useState("");
@@ -78,7 +81,7 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           "expired-callback": () => setTurnstileToken(""),
           "error-callback": () => {
             setTurnstileToken("");
-            setError("人机验证失败，请重试");
+            setError(t("auth.turnstileFailed"));
           },
         });
       })
@@ -94,7 +97,7 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   }, [settings]);
 
   const is2FA = Boolean(tempToken);
-  const title = is2FA ? "二次验证" : modeTitle(mode);
+  const title = is2FA ? t("auth.twoFactorTitle") : modeTitle(mode);
 
   return (
     <section className="flex h-full items-center justify-center">
@@ -102,30 +105,36 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         className="w-[460px] rounded-lg border p-6"
         style={{ background: theme.card, borderColor: theme.cardBorder, boxShadow: theme.cardShadow }}
       >
-        <div className="flex items-start justify-between gap-4">
-          <div>
+        <div className="grid gap-4">
+          <div className="text-center">
             <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
               {title}
             </h1>
             <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
-              登录芝麻灵码后，工作台会自动读取账户 Key、余额和环境状态。
+              {t("auth.description")}
             </p>
           </div>
           {!is2FA && (
-            <div className="flex rounded-lg p-1 text-xs" style={{ background: theme.bgTertiary }}>
-              <Tab active={mode === "login"} onClick={() => switchMode("login")}>登录</Tab>
-              <Tab active={mode === "register"} onClick={() => switchMode("register")}>注册</Tab>
+            <div className="mx-auto flex rounded-lg p-1 text-xs" style={{ background: theme.bgTertiary }}>
+              <Tab active={mode === "login"} onClick={() => switchMode("login")}>{t("auth.loginTab")}</Tab>
+              <Tab active={mode === "register"} onClick={() => switchMode("register")}>{t("auth.registerTab")}</Tab>
             </div>
           )}
         </div>
 
-        <div className="mt-5 grid gap-3">
+        <form
+          className="mt-5 grid gap-3"
+          onSubmit={(event) => {
+            event.preventDefault();
+            if (!loading && canSubmit()) void submit();
+          }}
+        >
           {is2FA ? (
             <>
               <div className="text-sm" style={{ color: theme.textSecondary }}>
-                请输入 {maskedEmail || "当前账号"} 的 6 位二次验证码。
+                {formatText("auth.twoFactorPrompt", { email: maskedEmail || t("auth.currentAccount") })}
               </div>
-              <Input label="2FA 验证码" value={totpCode} onChange={setTotpCode} />
+              <Input label={t("auth.twoFactorCode")} value={totpCode} onChange={setTotpCode} />
             </>
           ) : (
             renderModeFields()
@@ -134,7 +143,17 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           {settings?.turnstile_enabled && settings.turnstile_site_key && (
             <div ref={turnstileRef} className="min-h-[65px]" />
           )}
-        </div>
+          {mode === "login" && !is2FA && (
+            <label className="flex items-center gap-2 text-xs" style={{ color: theme.textSecondary }}>
+              <input
+                checked={rememberLogin}
+                onChange={(event) => onRememberLoginChange(event.target.checked)}
+                type="checkbox"
+              />
+              {t("auth.rememberLogin")}
+            </label>
+          )}
+        </form>
 
         {message && (
           <div className="mt-4 rounded-lg px-3 py-2 text-sm" style={{ background: theme.successLight, color: theme.success }}>
@@ -148,22 +167,22 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
         )}
 
         <button
-          className="mt-5 w-full rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
+          className="btn btn-primary mt-5 w-full rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-50"
           disabled={loading || !canSubmit()}
-          onClick={submit}
+          onClick={() => void submit()}
           style={{ background: theme.accent, color: theme.textOnAccent }}
           type="button"
         >
-          {loading ? "处理中..." : submitLabel()}
+          {loading ? t("auth.processing") : submitLabel()}
         </button>
 
         {!is2FA && (
           <div className="mt-4 flex items-center justify-between text-xs" style={{ color: theme.textSecondary }}>
-            <button onClick={() => switchMode(mode === "forgot" ? "login" : "forgot")} type="button">
-              {mode === "forgot" ? "返回登录" : "忘记密码"}
+            <button className="btn btn-text" onClick={() => switchMode(mode === "forgot" ? "login" : "forgot")} type="button">
+              {mode === "forgot" ? t("auth.backToLogin") : t("auth.forgotPassword")}
             </button>
-            <button onClick={() => switchMode(mode === "reset" ? "login" : "reset")} type="button">
-              {mode === "reset" ? "返回登录" : "已有重置 token"}
+            <button className="btn btn-text" onClick={() => switchMode(mode === "reset" ? "login" : "reset")} type="button">
+              {mode === "reset" ? t("auth.backToLogin") : t("auth.existingResetToken")}
             </button>
           </div>
         )}
@@ -175,8 +194,8 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
     if (mode === "forgot") {
       return (
         <>
-          {settings?.password_reset_enabled === false && <Notice text="当前服务器未开放密码找回。" />}
-          <Input label="邮箱" type="email" value={email} onChange={setEmail} />
+          {settings?.password_reset_enabled === false && <Notice text={t("auth.passwordResetDisabled")} />}
+              <Input label={t("auth.email")} placeholder={t("auth.loginEmailPlaceholder")} type="email" value={email} onChange={setEmail} />
         </>
       );
     }
@@ -184,38 +203,38 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
     if (mode === "reset") {
       return (
         <>
-          <Input label="邮箱" type="email" value={email} onChange={setEmail} />
-          <Input label="重置 token" value={resetToken} onChange={setResetToken} />
-          <Input label="新密码" type="password" value={password} onChange={setPassword} />
-          <Input label="确认新密码" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+          <Input label={t("auth.email")} placeholder={t("auth.loginEmailPlaceholder")} type="email" value={email} onChange={setEmail} />
+          <Input label={t("auth.resetToken")} value={resetToken} onChange={setResetToken} />
+          <Input label={t("auth.newPassword")} placeholder={t("auth.passwordPlaceholder")} type="password" value={password} onChange={setPassword} />
+          <Input label={t("auth.confirmNewPassword")} placeholder={t("auth.confirmPasswordPlaceholder")} type="password" value={confirmPassword} onChange={setConfirmPassword} />
         </>
       );
     }
 
     return (
       <>
-        <Input label="邮箱" type="email" value={email} onChange={setEmail} />
-        <Input label="密码" type="password" value={password} onChange={setPassword} />
+        <Input label={t("auth.email")} placeholder={t("auth.loginEmailPlaceholder")} type="email" value={email} onChange={setEmail} />
+        <Input label={t("auth.password")} placeholder={t("auth.passwordPlaceholder")} type="password" value={password} onChange={setPassword} />
         {mode === "register" && (
           <>
-            {settings?.registration_enabled === false && <Notice text="当前服务器未开放注册。" />}
-            <Input label="确认密码" type="password" value={confirmPassword} onChange={setConfirmPassword} />
+            {settings?.registration_enabled === false && <Notice text={t("auth.registrationDisabled")} />}
+            <Input label={t("auth.confirmPassword")} placeholder={t("auth.confirmPasswordPlaceholder")} type="password" value={confirmPassword} onChange={setConfirmPassword} />
             {settings?.email_verify_enabled && (
               <div className="grid grid-cols-[1fr_auto] items-end gap-2">
-                <Input label="邮箱验证码" value={verifyCode} onChange={setVerifyCode} />
+                <Input label={t("auth.emailVerifyCode")} value={verifyCode} onChange={setVerifyCode} />
                 <button
-                  className="rounded-lg px-3 py-2.5 text-xs font-medium disabled:opacity-50"
+                  className="btn btn-secondary rounded-lg px-3 py-2.5 text-xs font-medium disabled:opacity-50"
                   disabled={loading || verifyCountdown > 0 || !email.trim()}
                   onClick={requestVerifyCode}
                   style={{ background: theme.bgTertiary, color: theme.textSecondary }}
                   type="button"
                 >
-                  {verifyCountdown > 0 ? `${verifyCountdown}s` : "发送验证码"}
+                  {verifyCountdown > 0 ? `${verifyCountdown}s` : t("auth.sendVerifyCode")}
                 </button>
               </div>
             )}
-            {settings?.promo_code_enabled && <Input label="优惠码（可选）" value={promoCode} onChange={setPromoCode} />}
-            {settings?.invitation_code_enabled && <Input label="邀请码（可选）" value={invitationCode} onChange={setInvitationCode} />}
+            {settings?.promo_code_enabled && <Input label={t("auth.promoCodeOptional")} value={promoCode} onChange={setPromoCode} />}
+            {settings?.invitation_code_enabled && <Input label={t("auth.invitationCodeOptional")} value={invitationCode} onChange={setInvitationCode} />}
           </>
         )}
       </>
@@ -225,14 +244,14 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   async function submit() {
     clearStatus();
     if (settings?.turnstile_enabled && !turnstileToken && mode !== "reset") {
-      setError("请先完成人机验证");
+      setError(t("auth.turnstileRequired"));
       return;
     }
 
     setLoading(true);
     try {
       if (is2FA) {
-        onAuthenticated(await login2FA(tempToken, totpCode.trim()));
+        await onAuthenticated(await login2FA(tempToken, totpCode.trim()));
       } else if (mode === "login") {
         const response = await login(email.trim(), password, turnstileToken);
         if ("requires_2fa" in response) {
@@ -240,9 +259,9 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
           setMaskedEmail(response.user_email_masked ?? "");
           return;
         }
-        onAuthenticated(response);
+        await onAuthenticated(response);
       } else if (mode === "register") {
-        onAuthenticated(await register(email.trim(), password, {
+        await onAuthenticated(await register(email.trim(), password, {
           verifyCode: verifyCode.trim(),
           turnstileToken,
           promoCode: promoCode.trim(),
@@ -265,7 +284,7 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   async function requestVerifyCode() {
     clearStatus();
     if (settings?.turnstile_enabled && !turnstileToken) {
-      setError("请先完成人机验证");
+      setError(t("auth.turnstileRequired"));
       return;
     }
 
@@ -273,7 +292,7 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
     try {
       const response = await sendVerifyCode(email.trim(), turnstileToken);
       setVerifyCountdown(response.countdown);
-      setMessage(response.message || "验证码已发送");
+      setMessage(response.message || t("auth.verifyCodeSent"));
     } catch (e) {
       setError(normalizeError(e));
       resetTurnstile();
@@ -296,11 +315,11 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
   }
 
   function submitLabel() {
-    if (is2FA) return "验证并登录";
-    if (mode === "register") return "注册并登录";
-    if (mode === "forgot") return "发送重置邮件";
-    if (mode === "reset") return "重置密码";
-    return "登录";
+    if (is2FA) return t("auth.submitLogin2FA");
+    if (mode === "register") return t("auth.submitRegister");
+    if (mode === "forgot") return t("auth.submitForgot");
+    if (mode === "reset") return t("auth.submitReset");
+    return t("auth.submitLogin");
   }
 
   function switchMode(next: AuthMode) {
@@ -325,16 +344,16 @@ function AuthPanel({ onAuthenticated }: AuthPanelProps) {
 }
 
 function modeTitle(mode: AuthMode) {
-  if (mode === "register") return "注册账号";
-  if (mode === "forgot") return "找回密码";
-  if (mode === "reset") return "重置密码";
-  return "登录账号";
+  if (mode === "register") return t("auth.registerTitle");
+  if (mode === "forgot") return t("auth.forgotTitle");
+  if (mode === "reset") return t("auth.resetTitle");
+  return t("auth.loginTitle");
 }
 
 function Tab({ active, children, onClick }: { active: boolean; children: ReactNode; onClick: () => void }) {
   return (
     <button
-      className="rounded-md px-2.5 py-1 font-medium"
+      className="btn btn-secondary rounded-md px-2.5 py-1 font-medium"
       onClick={onClick}
       style={{ background: active ? theme.card : "transparent", color: active ? theme.textPrimary : theme.textSecondary }}
       type="button"
@@ -356,23 +375,41 @@ function Input({
   label,
   type = "text",
   value,
+  placeholder,
   onChange,
 }: {
   label: string;
   type?: string;
   value: string;
+  placeholder?: string;
   onChange: (value: string) => void;
 }) {
+  const [visible, setVisible] = useState(false);
+  const effectiveType = type === "password" && visible ? "text" : type;
+
   return (
     <label className="grid gap-1.5 text-sm" style={{ color: theme.textSecondary }}>
       {label}
-      <input
-        className="rounded-lg border px-3 py-2.5 outline-none"
-        onChange={(e) => onChange(e.target.value)}
-        style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
-        type={type}
-        value={value}
-      />
+      <span className="relative">
+        <input
+          className={`w-full rounded-lg border px-3 py-2.5 ${type === "password" ? "pr-16" : ""}`}
+          onChange={(e) => onChange(e.target.value)}
+          placeholder={placeholder}
+          style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+          type={effectiveType}
+          value={value}
+        />
+        {type === "password" && (
+          <button
+            className="btn btn-text absolute right-2 top-1/2 -translate-y-1/2 rounded-md px-2 py-1 text-xs"
+            onClick={() => setVisible((current) => !current)}
+            style={{ color: theme.textSecondary }}
+            type="button"
+          >
+            {visible ? t("auth.passwordHide") : t("auth.passwordShow")}
+          </button>
+        )}
+      </span>
     </label>
   );
 }
@@ -392,14 +429,14 @@ function loadTurnstileScript() {
     script.src = "https://challenges.cloudflare.com/turnstile/v0/api.js?onload=onTurnstileLoad";
     script.async = true;
     script.defer = true;
-    script.onerror = () => reject(new Error("无法加载人机验证脚本"));
+    script.onerror = () => reject(new Error(t("auth.turnstileLoadFailed")));
     document.head.appendChild(script);
   });
 }
 
 function normalizeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/^Error:\s*/, "") || "请求失败";
+  return message.replace(/^Error:\s*/, "") || t("app.error.requestFailed");
 }
 
 export default AuthPanel;

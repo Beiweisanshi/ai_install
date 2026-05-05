@@ -1,3 +1,6 @@
+import { invoke } from "@tauri-apps/api/core";
+
+import { formatText } from "../lib/strings";
 import { theme } from "../styles/theme";
 import type { AppVersionInfo } from "../types";
 
@@ -7,9 +10,22 @@ interface AppVersionBannerProps {
 
 function AppVersionBanner({ versionInfo }: AppVersionBannerProps) {
   const isUpgradable = versionInfo.upgrade_available;
+  const url = versionInfo.release_url || versionInfo.download_url;
+  const clickable = Boolean(url);
+
+  async function openRelease() {
+    if (!url) return;
+    await invoke("open_external_url", { url });
+  }
 
   return (
-    <div className="flex items-center gap-2">
+    <button
+      className="flex items-center gap-2 rounded-lg px-2 py-1 disabled:cursor-default"
+      disabled={!clickable}
+      onClick={() => void openRelease()}
+      style={{ background: clickable ? theme.bgTertiary : "transparent" }}
+      type="button"
+    >
       <span className="text-xs" style={{ color: theme.textMuted }}>
         v{versionInfo.current_version}
       </span>
@@ -21,10 +37,10 @@ function AppVersionBanner({ versionInfo }: AppVersionBannerProps) {
             color: theme.accent,
           }}
         >
-          {versionInfo.latest_version} 可用
+          {formatText("app.version.available", { version: versionInfo.latest_version })}
         </span>
       )}
-    </div>
+    </button>
   );
 }
 

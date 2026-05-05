@@ -1,12 +1,15 @@
 import { useCallback, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 
+import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
 import type { DetectResult, InstallResult } from "../types";
 
 interface SummaryProps {
   results: InstallResult[];
   tools: DetectResult[];
+  onDone: () => void;
+  onRetry: (toolNames: string[]) => void;
 }
 
 function formatDuration(ms: number) {
@@ -15,12 +18,12 @@ function formatDuration(ms: number) {
 
 function getResultState(result: InstallResult) {
   if (result.success) {
-    return { color: theme.success, bg: theme.successLight, icon: "✓", label: "成功" };
+    return { color: theme.success, bg: theme.successLight, icon: "✓", label: t("summary.success") };
   }
   if (result.message.toLowerCase().includes("skip")) {
-    return { color: theme.textMuted, bg: theme.bgTertiary, icon: "-", label: "跳过" };
+    return { color: theme.textMuted, bg: theme.bgTertiary, icon: "-", label: t("summary.skipped") };
   }
-  return { color: theme.error, bg: theme.errorLight, icon: "!", label: "失败" };
+  return { color: theme.error, bg: theme.errorLight, icon: "!", label: t("summary.failed") };
 }
 
 function getVersionDisplay(result: InstallResult, detectInfo?: DetectResult) {
@@ -30,13 +33,17 @@ function getVersionDisplay(result: InstallResult, detectInfo?: DetectResult) {
   return current ?? result.version ?? "-";
 }
 
-function Summary({ results, tools }: SummaryProps) {
+function Summary({ results, tools, onDone, onRetry }: SummaryProps) {
   const detectMap = new Map(tools.map((t) => [t.name, t]));
   const successCount = results.filter((r) => r.success).length;
   const skippedCount = results.filter(
     (r) => !r.success && r.message.toLowerCase().includes("skip"),
   ).length;
   const failedCount = results.length - successCount - skippedCount;
+  const failedNames = results
+    .filter((r) => !r.success && !r.message.toLowerCase().includes("skip"))
+    .map((r) => r.name);
+  const totalDuration = results.reduce((sum, result) => sum + result.duration_ms, 0);
 
   const [upgrading, setUpgrading] = useState<Set<string>>(new Set());
   const [upgradeResults, setUpgradeResults] = useState<Record<string, InstallResult>>({});
@@ -51,7 +58,7 @@ function Summary({ results, tools }: SummaryProps) {
     } catch {
       setUpgradeResults((prev) => ({
         ...prev,
-        [toolName]: { name: toolName, success: false, version: null, message: "升级失败", duration_ms: 0 },
+        [toolName]: { name: toolName, success: false, version: null, message: t("summary.upgradeFailed"), duration_ms: 0 },
       }));
     } finally {
       setUpgrading((prev) => {
@@ -66,23 +73,36 @@ function Summary({ results, tools }: SummaryProps) {
     <section className="flex h-full flex-col gap-4">
       <div>
         <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
-          安装完成
+          {t("summary.title")}
         </h1>
-        <div className="mt-2 flex items-center gap-3">
+        <div className="mt-2 flex flex-wrap items-center gap-3">
           {successCount > 0 && (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ background: theme.successLight, color: theme.success }}>
-              {successCount} 成功
+              {formatText("summary.successCount", { count: successCount })}
             </span>
           )}
           {failedCount > 0 && (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ background: theme.errorLight, color: theme.error }}>
-              {failedCount} 失败
+              {formatText("summary.failedCount", { count: failedCount })}
             </span>
           )}
           {skippedCount > 0 && (
             <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ background: theme.bgTertiary, color: theme.textMuted }}>
-              {skippedCount} 跳过
+              {formatText("summary.skippedCount", { count: skippedCount })}
             </span>
+          )}
+          <span className="rounded-full px-2.5 py-0.5 text-xs font-medium" style={{ background: theme.bgTertiary, color: theme.textMuted }}>
+            {formatText("summary.totalDuration", { duration: formatDuration(totalDuration) })}
+          </span>
+          {failedNames.length > 0 && (
+            <button
+              className="rounded-full px-3 py-1 text-xs font-semibold"
+              onClick={() => onRetry(failedNames)}
+              style={{ background: theme.errorLight, color: theme.error }}
+              type="button"
+            >
+              {formatText("summary.retry", { count: failedNames.length })}
+            </button>
           )}
         </div>
       </div>
@@ -131,15 +151,15 @@ function Summary({ results, tools }: SummaryProps) {
                     style={{ background: theme.accentLight, color: theme.accent }}
                     type="button"
                   >
-                    升级
+                    {t("summary.upgrade")}
                   </button>
                 )}
 
-                {isUpgrading && <span className="text-xs" style={{ color: theme.accent }}>升级中...</span>}
+                {isUpgrading && <span className="text-xs" style={{ color: theme.accent }}>{t("summary.upgrading")}</span>}
 
                 {upgraded && (
                   <span className="text-xs font-medium" style={{ color: upgraded.success ? theme.success : theme.error }}>
-                    {upgraded.success ? `已升级 ${upgraded.version ?? ""}` : "失败"}
+                    {upgraded.success ? formatText("summary.upgraded", { version: upgraded.version ?? "" }) : t("summary.failed")}
                   </span>
                 )}
 
@@ -164,7 +184,7 @@ function Summary({ results, tools }: SummaryProps) {
       <div className="flex items-center justify-end pt-2">
         <button
           className="rounded-full px-6 py-2.5 text-sm font-semibold transition-all duration-200 hover:-translate-y-px"
-          onClick={() => window.location.reload()}
+          onClick={onDone}
           style={{
             background: theme.accent,
             color: theme.textOnAccent,
@@ -172,7 +192,7 @@ function Summary({ results, tools }: SummaryProps) {
           }}
           type="button"
         >
-          完成
+          {t("summary.done")}
         </button>
       </div>
     </section>

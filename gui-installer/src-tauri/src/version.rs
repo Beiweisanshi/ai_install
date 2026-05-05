@@ -18,6 +18,7 @@ const VERSION_METADATA_FILE: &str = "app-version.json";
 struct VersionMetadata {
     latest_version: Option<String>,
     download_url: Option<String>,
+    release_url: Option<String>,
 }
 
 pub fn get_app_version_info() -> AppVersionInfo {
@@ -29,6 +30,10 @@ pub fn get_app_version_info() -> AppVersionInfo {
     let download_url = metadata
         .as_ref()
         .and_then(|value| normalize_optional_string(value.download_url.as_deref()));
+    let release_url = metadata
+        .as_ref()
+        .and_then(|value| normalize_optional_string(value.release_url.as_deref()))
+        .or_else(|| download_url.clone());
     let upgrade_available = latest_version
         .as_deref()
         .is_some_and(|latest| is_newer_version(&current_version, latest));
@@ -38,6 +43,7 @@ pub fn get_app_version_info() -> AppVersionInfo {
         latest_version,
         upgrade_available,
         download_url,
+        release_url,
     }
 }
 

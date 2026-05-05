@@ -4,8 +4,11 @@ import { invoke } from "@tauri-apps/api/core";
 import AuthPanel from "./components/AuthPanel";
 import BlockingProcessesModal from "./components/BlockingProcessesModal";
 import Dashboard from "./components/Dashboard";
+import DetectSkeleton from "./components/DetectSkeleton";
 import Layout from "./components/Layout";
+import PreflightDialog from "./components/PreflightDialog";
 import Summary from "./components/Summary";
+import Toast, { type ToastKind } from "./components/Toast";
 import ToolList from "./components/ToolList";
 import {
   getPaymentCheckoutInfo,
@@ -14,27 +17,30 @@ import {
   PUBLIC_BASE_URL,
 } from "./lib/backendApi";
 import {
+  applyActiveChannel,
   clearSession,
   loadChannels,
   loadCurrentChannelId,
+  loadPreferences,
   loadSession,
   loadToolKeySelections,
+  readActiveSettings,
   saveChannels,
   saveCurrentChannelId,
+  savePreferences,
   saveSession,
   saveToolKeySelections,
 } from "./lib/storage";
-import { DEFAULT_TOOL_CONFIGS, keysForTool, toolNameForConfig, TOOL_IDS } from "./lib/toolKeys";
+import { formatText, t } from "./lib/strings";
+import { DEFAULT_TOOL_CONFIGS, keysForTool, TOOL_IDS } from "./lib/toolKeys";
 import { useInstaller } from "./hooks/useInstaller";
 import { useSmoothedProgress } from "./hooks/useSmoothedProgress";
-import { theme } from "./styles/theme";
 import type {
   AiToolId,
   ApiKey,
   AppPhase,
   AuthSession,
   ChannelConfig,
-  ConfigEntry,
   LaunchMode,
   ToolChannelConfig,
   ToolKeySelections,
@@ -44,7 +50,8 @@ import type {
 function App() {
   const installer = useInstaller();
   const smoothedProgress = useSmoothedProgress(installer.progress);
-  const [session, setSession] = useState<AuthSession | null>(() => loadSession());
+  const [session, setSession] = useState<AuthSession | null>(null);
+  const [sessionLoading, setSessionLoading] = useState(true);
   const [apiKeys, setApiKeys] = useState<ApiKey[]>([]);
   const [profile, setProfile] = useState<UserProfile | null>(null);
   const [accountLoading, setAccountLoading] = useState(false);
@@ -53,6 +60,25 @@ function App() {
   const [channels, setChannels] = useState<ChannelConfig[]>(() => normalizeChannels(loadChannels()));
   const [currentChannelId, setCurrentChannelId] = useState<string | null>(() => loadCurrentChannelId());
   const [channelError, setChannelError] = useState<string | null>(null);
+  const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null);
+  const [preferences, setPreferences] = useState(() => loadPreferences());
+
+  useEffect(() => {
+    let cancelled = false;
+    loadSession()
+      .then((storedSession) => {
+        if (!cancelled) setSession(storedSession);
+      })
+      .catch((error) => {
+        if (!cancelled) setChannelError(normalizeError(error));
+      })
+      .finally(() => {
+        if (!cancelled) setSessionLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     saveChannels(channels);
@@ -62,6 +88,11 @@ function App() {
     if (!session) return;
     void loadAccount(session);
   }, [session]);
+
+  useEffect(() => {
+    document.documentElement.dataset.theme = preferences.darkMode ? "dark" : "light";
+    savePreferences(preferences);
+  }, [preferences]);
 
   useEffect(() => {
     if (!session || apiKeys.length === 0) return;
@@ -94,35 +125,86 @@ function App() {
     setCurrentChannelId("default");
   }, [currentChannelId, effectiveChannels]);
 
+  // Drift check: if the on-disk Claude settings diverged from the active
+  // custom channel (e.g. user edited settings.json by hand or another tool
+  // wrote it), prompt to re-apply.
+  useEffect(() => {
+    if (!session || !currentChannel || currentChannel.isDefault) return;
+    let cancelled = false;
+    void readActiveSettings()
+      .then((settings) => {
+        if (cancelled || !settings) return;
+        const claude = currentChannel.toolConfigs.claude;
+        if (!claude.baseUrl || !claude.apiKey) return;
+        const diskUrl = settings.claudeBaseUrl ?? "";
+        const diskKey = settings.claudeAuthToken ?? settings.claudeApiKey ?? "";
+        if (diskUrl !== claude.baseUrl || diskKey !== claude.apiKey) {
+          setToast({ kind: "err", text: t("channel.driftDetected") });
+        }
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [session, currentChannel?.id]);
+
   const gatedPhase: AppPhase = installer.phase === "dashboard"
-    ? !session
+    ? sessionLoading
+      ? "detecting"
+      : !session
       ? "auth"
       : "dashboard"
     : installer.phase;
 
-  const handleAuthenticated = (nextSession: AuthSession) => {
+  const handleAuthenticated = async (nextSession: AuthSession) => {
+    await saveSession(nextSession, preferences.rememberLogin);
     setSession(nextSession);
-    saveSession(nextSession);
   };
 
-  const handleLogout = () => {
-    clearSession();
+  const handleLogout = async () => {
+    await clearSession();
     setSession(null);
     setApiKeys([]);
     setProfile(null);
   };
 
-  const handleSaveChannel = (channel: ChannelConfig) => {
+  const handleSaveChannel = async (channel: ChannelConfig) => {
     const normalized = normalizeChannel(channel);
     const next = upsertChannel(channels, normalized);
     setChannels(next);
     setCurrentChannelId(normalized.id);
     saveCurrentChannelId(normalized.id);
+    try {
+      await applyActiveChannel(normalized);
+      setToast({ kind: "ok", text: t("channel.applied") });
+    } catch (e) {
+      setToast({ kind: "err", text: formatText("channel.applyFailed", { detail: normalizeError(e) }) });
+    }
   };
 
-  const handleSwitchChannel = (id: string) => {
+  const handleSwitchChannel = async (id: string) => {
     setCurrentChannelId(id);
     saveCurrentChannelId(id);
+    const target = effectiveChannels.find((channel) => channel.id === id);
+    if (!target) return;
+    try {
+      await applyActiveChannel(target);
+      setToast({ kind: "ok", text: t("channel.applied") });
+    } catch (e) {
+      setToast({ kind: "err", text: formatText("channel.applyFailed", { detail: normalizeError(e) }) });
+    }
+  };
+
+  const handleDeleteChannel = (id: string) => {
+    const channel = channels.find((item) => item.id === id);
+    if (!channel || channel.isDefault) return;
+    const next = channels.filter((item) => item.id !== id);
+    setChannels(next);
+    if (currentChannelId === id) {
+      setCurrentChannelId("default");
+      saveCurrentChannelId("default");
+    }
   };
 
   const handleSelectToolKey = (tool: AiToolId, keyId: number) => {
@@ -130,6 +212,17 @@ function App() {
     setKeySelections(next);
     saveToolKeySelections(next);
   };
+
+  const handleRememberLoginChange = (rememberLogin: boolean) => {
+    setPreferences((current) => ({ ...current, rememberLogin }));
+    if (!rememberLogin) {
+      void clearSession();
+    } else if (session) {
+      void saveSession(session, true);
+    }
+  };
+
+  const dismissToast = useCallback(() => setToast(null), []);
 
   const refreshBalance = useCallback(async () => {
     if (!session) return;
@@ -150,7 +243,7 @@ function App() {
     try {
       const checkout = await getPaymentCheckoutInfo(session);
       if (checkout.enabled === false || checkout.payment_enabled === false || checkout.balance_disabled === true) {
-        setChannelError("当前服务器未开启充值。");
+        setChannelError(t("dashboard.noRecharge"));
         return;
       }
     } catch {
@@ -164,24 +257,24 @@ function App() {
     }
   };
 
+  const openKeyManager = async () => {
+    const url = `${PUBLIC_BASE_URL}/keys`;
+    try {
+      await invoke("open_external_url", { url });
+    } catch {
+      window.open(url, "_blank", "noopener,noreferrer");
+    }
+  };
+
   const launchTool = async (tool: AiToolId, mode: LaunchMode) => {
     const resolved = resolveToolConfig(currentChannel, apiKeys, keySelections, tool);
     if (!resolved) {
-      setChannelError(currentChannel.isDefault ? "当前工具没有匹配的账户 Key。" : "当前工具的自定义渠道未配置完整。");
+      setChannelError(currentChannel.isDefault ? t("dashboard.noMatchingKeyError") : t("dashboard.incompleteCustomChannel"));
       return;
     }
 
     setChannelError(null);
     try {
-      if (tool !== "opencode") {
-        const entry: ConfigEntry = {
-          tool_name: toolNameForConfig(tool),
-          api_url: resolved.baseUrl,
-          api_key: resolved.apiKey,
-        };
-        await invoke("save_config", { entries: [entry] });
-      }
-
       await invoke("launch_ai_tool", {
         tool,
         mode,
@@ -193,23 +286,21 @@ function App() {
   };
 
   return (
-    <Layout appVersionInfo={installer.appVersionInfo}>
-      {installer.phase === "detecting" && (
-        <div className="flex h-full items-center justify-center">
-          <div className="flex flex-col items-center gap-3">
-            <div
-              className="h-6 w-6 animate-spin rounded-full border-2 border-current border-t-transparent"
-              style={{ color: theme.accent }}
-            />
-            <p className="text-sm" style={{ color: theme.textSecondary }}>
-              正在检测当前环境...
-            </p>
-          </div>
-        </div>
+    <Layout
+      appVersionInfo={installer.appVersionInfo}
+      darkMode={preferences.darkMode}
+      onToggleDarkMode={() => setPreferences((current) => ({ ...current, darkMode: !current.darkMode }))}
+    >
+      {gatedPhase === "detecting" && (
+        <DetectSkeleton tools={["Git", "Node.js", "Nushell", "Codex", "Claude", "Gemini", "OpenCode"]} />
       )}
 
       {gatedPhase === "auth" && (
-        <AuthPanel onAuthenticated={handleAuthenticated} />
+        <AuthPanel
+          onAuthenticated={handleAuthenticated}
+          onRememberLoginChange={handleRememberLoginChange}
+          rememberLogin={preferences.rememberLogin}
+        />
       )}
 
       {gatedPhase === "dashboard" && session && currentChannel && (
@@ -221,6 +312,8 @@ function App() {
           error={installer.error || channelError}
           keySelections={keySelections}
           onInstall={installer.openInstall}
+          onDeleteChannel={handleDeleteChannel}
+          onOpenKeyManager={openKeyManager}
           onLaunch={launchTool}
           onLogout={handleLogout}
           onRecharge={openRecharge}
@@ -232,6 +325,13 @@ function App() {
           onSaveChannel={handleSaveChannel}
           onSelectToolKey={handleSelectToolKey}
           onSwitchChannel={handleSwitchChannel}
+          appVersionInfo={installer.appVersionInfo}
+          darkMode={preferences.darkMode}
+          rememberLogin={preferences.rememberLogin}
+          detectInterval={preferences.detectInterval}
+          onDarkModeChange={(darkMode) => setPreferences((current) => ({ ...current, darkMode }))}
+          onRememberLoginChange={handleRememberLoginChange}
+          onDetectIntervalChange={(detectInterval) => setPreferences((current) => ({ ...current, detectInterval }))}
           profile={profile}
           tools={installer.tools}
         />
@@ -253,7 +353,26 @@ function App() {
       )}
 
       {installer.phase === "summary" && (
-        <Summary results={installer.results} tools={installer.tools} />
+        <Summary
+          onDone={() => {
+            installer.goDashboard();
+            if (session) {
+              void loadAccount(session);
+            }
+          }}
+          onRetry={installer.retryFailed}
+          results={installer.results}
+          tools={installer.tools}
+        />
+      )}
+
+      {installer.preflight && (
+        <PreflightDialog
+          onCancel={installer.cancelPreflight}
+          onConfirm={installer.confirmPreflight}
+          result={installer.preflight.result}
+          tools={installer.preflight.tools}
+        />
       )}
 
       {installer.blocking && (
@@ -264,6 +383,8 @@ function App() {
           state={installer.blocking}
         />
       )}
+
+      {toast && <Toast kind={toast.kind} text={toast.text} onDismiss={dismissToast} />}
     </Layout>
   );
 
@@ -289,7 +410,7 @@ function createDefaultChannel(): ChannelConfig {
   const root = PUBLIC_BASE_URL.replace(/\/+$/, "");
   return {
     id: "default",
-    name: "芝麻灵码",
+    name: t("app.defaultChannelName"),
     toolConfigs: {
       claude: { baseUrl: `${root}/v1`, apiKey: "" },
       codex: { baseUrl: `${root}/v1`, apiKey: "" },
@@ -320,7 +441,7 @@ function normalizeChannel(channel: ChannelConfig): ChannelConfig {
 
   return {
     id: channel.id || `custom-${Date.now()}`,
-    name: channel.name || "自定义渠道",
+    name: channel.name || t("app.customChannelName"),
     isDefault: channel.isDefault,
     toolConfigs: {
       ...DEFAULT_TOOL_CONFIGS,
@@ -394,7 +515,7 @@ function envVarsForTool(tool: AiToolId, config: ToolChannelConfig) {
 
 function normalizeError(error: unknown) {
   const message = error instanceof Error ? error.message : String(error);
-  return message.replace(/^Error:\s*/, "") || "请求失败";
+  return message.replace(/^Error:\s*/, "") || t("app.error.requestFailed");
 }
 
 export default App;

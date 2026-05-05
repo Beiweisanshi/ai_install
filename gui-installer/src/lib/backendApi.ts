@@ -1,5 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
+import { t } from "./strings";
 import type {
   ApiKey,
   AuthSession,
@@ -43,7 +44,21 @@ export interface TotpLoginResponse {
 }
 
 export async function getPublicSettings(): Promise<PublicSettings> {
-  return request<PublicSettings>("/settings/public");
+  try {
+    return await request<PublicSettings>("/settings/public");
+  } catch {
+    return {
+      registration_enabled: false,
+      email_verify_enabled: false,
+      password_reset_enabled: false,
+      invitation_code_enabled: false,
+      promo_code_enabled: false,
+      turnstile_enabled: false,
+      turnstile_site_key: "",
+      site_name: "zm_tools",
+      api_base_url: API_BASE_URL,
+    };
+  }
 }
 
 export async function login(
@@ -192,7 +207,7 @@ async function request<T>(path: string, init: RequestInit = {}): Promise<T> {
 
   if (isEnvelope<T>(payload)) {
     if (payload.code !== undefined && payload.code !== 0) {
-      throw new Error(payload.message || "请求失败");
+      throw new Error(payload.message || t("app.error.requestFailed"));
     }
     return payload.data as T;
   }

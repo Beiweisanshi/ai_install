@@ -102,6 +102,11 @@ fn validate_key(api_key: &str) -> Result<(), InstallerError> {
     Ok(())
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "Use channel_config::apply_active_channel — it writes per-tool config files (~/.claude/settings.json etc.) directly so changes take effect without env-var propagation or terminal restart. setx-based env vars only affect newly spawned shells."
+)]
+#[allow(deprecated)]
 pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError> {
     for entry in entries {
         validate_config_entry(&entry)?;
@@ -139,6 +144,10 @@ pub fn save_all_configs(entries: Vec<ConfigEntry>) -> Result<(), InstallerError>
     Ok(())
 }
 
+#[deprecated(
+    since = "0.2.0",
+    note = "Persistent settings now live in per-tool config files; see channel_config::apply_active_channel."
+)]
 pub fn save_env_config(var_name: &str, value: &str) -> Result<(), InstallerError> {
     #[cfg(target_os = "windows")]
     {

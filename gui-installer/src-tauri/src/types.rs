@@ -40,6 +40,7 @@ pub struct AppVersionInfo {
     pub latest_version: Option<String>,
     pub upgrade_available: bool,
     pub download_url: Option<String>,
+    pub release_url: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize)]
@@ -68,6 +69,18 @@ pub struct RunningProc {
     pub pid: u32,
     pub name: String,
     pub executable_path: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct PrecheckResult {
+    pub disk_free_mb: u64,
+    pub blocking_processes: Vec<RunningProc>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct EnvVarInfo {
+    pub name: String,
+    pub value: Option<String>,
 }
 
 #[derive(Debug, Clone)]

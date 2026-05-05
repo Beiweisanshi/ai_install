@@ -12,15 +12,17 @@
   "app": {
     "windows": [
       {
-        "title": "zm_tools",
+        "title": "芝麻灵码 — AI 环境工作台",
         "width": 900,
         "height": 700,
-        "resizable": false,
+        "minWidth": 880,
+        "minHeight": 640,
+        "resizable": true,
         "center": true
       }
     ],
     "security": {
-      "csp": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http: https:; frame-src https://challenges.cloudflare.com"
+      "csp": "default-src 'self'; script-src 'self' https://challenges.cloudflare.com; style-src 'self' 'unsafe-inline'; connect-src 'self' ipc: http://ipc.localhost http://localhost:8080 http://127.0.0.1:8080 https://challenges.cloudflare.com https://registry.npmmirror.com; frame-src https://challenges.cloudflare.com"
     }
   },
   "bundle": {

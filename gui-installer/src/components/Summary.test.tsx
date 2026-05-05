@@ -20,7 +20,7 @@ const tools: DetectResult[] = [
 
 describe("Summary", () => {
   it("renders the installation summary", () => {
-    render(<Summary results={results} tools={tools} />);
+    render(<Summary onDone={() => undefined} onRetry={() => undefined} results={results} tools={tools} />);
 
     expect(screen.getByText("安装完成")).toBeInTheDocument();
     expect(screen.getByText("Claude CLI")).toBeInTheDocument();
@@ -30,7 +30,7 @@ describe("Summary", () => {
   });
 
   it("shows success, failed, and skipped counts", () => {
-    render(<Summary results={results} tools={tools} />);
+    render(<Summary onDone={() => undefined} onRetry={() => undefined} results={results} tools={tools} />);
 
     expect(screen.getByText("2 成功")).toBeInTheDocument();
     expect(screen.getByText("1 失败")).toBeInTheDocument();

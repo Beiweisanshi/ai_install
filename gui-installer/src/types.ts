@@ -36,12 +36,23 @@ export interface AppVersionInfo {
   latest_version: string | null;
   upgrade_available: boolean;
   download_url: string | null;
+  release_url?: string | null;
 }
 
 export interface RunningProc {
   pid: number;
   name: string;
   executable_path: string | null;
+}
+
+export interface PrecheckResult {
+  disk_free_mb: number;
+  blocking_processes: RunningProc[];
+}
+
+export interface EnvVarInfo {
+  name: string;
+  value: string | null;
 }
 
 export interface BlockingState {
@@ -145,4 +156,14 @@ export interface ChannelConfig {
   name: string;
   toolConfigs: ToolChannelConfigs;
   isDefault?: boolean;
+}
+
+export interface ActiveSettings {
+  claudeBaseUrl: string | null;
+  claudeAuthToken: string | null;
+  claudeApiKey: string | null;
+  codexBaseUrl: string | null;
+  codexApiKey: string | null;
+  geminiBaseUrl: string | null;
+  geminiApiKey: string | null;
 }

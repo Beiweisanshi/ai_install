@@ -117,7 +117,7 @@ foreach ($dllName in @("libgcc_s_seh-1.dll", "libstdc++-6.dll", "libwinpthread-1
   }
 }
 
-$tauriConfig = Get-Content $tauriConfigPath -Raw | ConvertFrom-Json
+$tauriConfig = Get-Content $tauriConfigPath -Raw -Encoding UTF8 | ConvertFrom-Json
 $versionMetadata = @{
   latest_version = $tauriConfig.version
 }

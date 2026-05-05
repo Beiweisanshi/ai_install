@@ -1,6 +1,7 @@
-import { Fragment } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import ToolCard from "./ToolCard";
+import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
 import type { DetectResult } from "../types";
 
@@ -35,7 +36,7 @@ function getToolStatus(
 }
 
 function formatDetailText(detailText?: string | null) {
-  if (detailText === "Missing local package") return "缺少本地安装包";
+  if (detailText === "Missing local package") return t("install.missingLocalPackage");
   return detailText ?? undefined;
 }
 
@@ -53,6 +54,8 @@ function ToolList({
 }: ToolListProps) {
   const installableTools = tools.filter((tool) => tool.installable && (!tool.installed || tool.upgradable));
   const allSelected = installableTools.length > 0 && selected.size === installableTools.length;
+  const [expandedLogTool, setExpandedLogTool] = useState<string | null>(null);
+  const mergedLogs = useMemo(() => mergeLogs(logs), [logs]);
 
   return (
     <section className="flex h-full min-h-0 flex-col gap-4">
@@ -60,10 +63,10 @@ function ToolList({
         <div className="flex items-start justify-between gap-4">
           <div>
             <h1 className="text-xl font-semibold" style={{ color: theme.textPrimary }}>
-              安装与升级
+              {t("install.title")}
             </h1>
             <p className="mt-1 text-sm" style={{ color: theme.textSecondary }}>
-              选择需要安装或升级的环境组件。
+              {t("install.description")}
             </p>
           </div>
 
@@ -75,7 +78,7 @@ function ToolList({
               style={{ color: theme.textMuted }}
               type="button"
             >
-              返回
+              {t("common.back")}
             </button>
             <button
               className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150"
@@ -86,7 +89,7 @@ function ToolList({
               }}
               type="button"
             >
-              全选
+              {t("install.selectAll")}
             </button>
             <button
               className="rounded-lg px-3 py-1.5 text-xs font-medium transition-colors duration-150"
@@ -94,13 +97,13 @@ function ToolList({
               style={{ color: theme.textMuted }}
               type="button"
             >
-              清空
+              {t("install.clear")}
             </button>
           </div>
         </div>
 
         <div className="mt-3 flex items-center gap-4 text-xs" style={{ color: theme.textMuted }}>
-          <span>{tools.length} 个组件</span>
+          <span>{formatText("install.componentCount", { count: tools.length })}</span>
           <span
             className="rounded-full px-2 py-0.5 font-medium"
             style={{
@@ -108,7 +111,7 @@ function ToolList({
               color: selected.size > 0 ? theme.accent : theme.textMuted,
             }}
           >
-            已选择 {selected.size}
+            {formatText("install.selectedCount", { count: selected.size })}
           </span>
         </div>
       </div>
@@ -118,11 +121,11 @@ function ToolList({
           const progressEntry = progress[tool.name];
           const toolLogs = logs?.[tool.name] ?? [];
           const status = getToolStatus(tool, installing, progressEntry);
-          const showLogs = installing && status === "installing" && toolLogs.length > 0;
+          const showLogToggle = installing && status === "installing" && toolLogs.length > 0;
           const canSelect = tool.installable && (!tool.installed || tool.upgradable);
 
           return (
-            <Fragment key={tool.name}>
+            <div className="relative" key={tool.name}>
               <ToolCard
                 availableVersion={tool.available_version ?? undefined}
                 checked={selected.has(tool.name)}
@@ -134,27 +137,31 @@ function ToolList({
                 progress={progressEntry?.percent}
                 status={status}
               />
-              {showLogs && (
-                <pre
-                  className="mt-1 max-h-32 overflow-auto rounded-md px-3 py-2 text-[10px] font-mono"
-                  style={{
-                    background: theme.bgTertiary,
-                    color: theme.textSecondary,
-                    whiteSpace: "pre-wrap",
-                    wordBreak: "break-all",
-                  }}
+              {showLogToggle && (
+                <button
+                  className="absolute right-3 top-3 rounded-md px-2 py-1 text-xs font-medium"
+                  onClick={() => setExpandedLogTool((current) => (current === tool.name ? null : tool.name))}
+                  style={{ background: theme.bgTertiary, color: theme.textSecondary }}
+                  type="button"
                 >
-                  {toolLogs.slice(-30).join("\n")}
-                </pre>
+                  {t("install.details")} {expandedLogTool === tool.name ? "▴" : "▾"}
+                </button>
               )}
-            </Fragment>
+            </div>
           );
         })}
       </div>
 
+      {installing && mergedLogs.length > 0 && (
+        <InstallLogsPane
+          lines={expandedLogTool ? (logs?.[expandedLogTool] ?? []).map((line) => `${expandedLogTool}: ${line}`) : mergedLogs}
+          title={expandedLogTool ? formatText("install.toolLogsTitle", { toolName: expandedLogTool }) : t("install.logsTitle")}
+        />
+      )}
+
       <div className="flex items-center justify-between pt-2">
         <p className="text-xs" style={{ color: theme.textMuted }}>
-          已安装且无需升级的组件会保持禁用，避免重复安装。
+          {t("install.disabledHint")}
         </p>
 
         <button
@@ -170,11 +177,45 @@ function ToolList({
           }}
           type="button"
         >
-          {installing ? "安装中..." : "开始安装"}
+          {installing ? t("install.installing") : t("install.start")}
         </button>
       </div>
     </section>
   );
+}
+
+function InstallLogsPane({ title, lines }: { title: string; lines: string[] }) {
+  const ref = useRef<HTMLPreElement | null>(null);
+
+  useEffect(() => {
+    if (ref.current) {
+      ref.current.scrollTop = ref.current.scrollHeight;
+    }
+  }, [lines]);
+
+  return (
+    <div className="rounded-lg border p-3" style={{ background: theme.bgSecondary, borderColor: theme.border }}>
+      <div className="mb-2 text-xs font-semibold" style={{ color: theme.textPrimary }}>
+        {title}
+      </div>
+      <pre
+        className="max-h-64 overflow-auto text-xs font-mono"
+        ref={ref}
+        style={{
+          color: theme.textSecondary,
+          whiteSpace: "pre-wrap",
+          wordBreak: "break-all",
+        }}
+      >
+        {lines.slice(-300).join("\n")}
+      </pre>
+    </div>
+  );
+}
+
+function mergeLogs(logs?: Record<string, string[]>) {
+  if (!logs) return [];
+  return Object.entries(logs).flatMap(([tool, lines]) => lines.map((line) => `${tool}: ${line}`));
 }
 
 export default ToolList;

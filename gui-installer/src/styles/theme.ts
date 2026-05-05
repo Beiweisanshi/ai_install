@@ -6,40 +6,40 @@
  */
 export const theme = {
   /* backgrounds */
-  bgPrimary: "#F7F5F0",
-  bgSecondary: "#FFFFFF",
-  bgTertiary: "#F0EDE6",
-  bgHover: "#EBE8E1",
+  bgPrimary: "var(--bg-primary)",
+  bgSecondary: "var(--bg-secondary)",
+  bgTertiary: "var(--bg-tertiary)",
+  bgHover: "var(--bg-hover)",
 
   /* cards */
-  card: "#FFFFFF",
-  cardBorder: "#E8E4DD",
-  cardShadow: "0 1px 3px rgba(0,0,0,0.04), 0 1px 2px rgba(0,0,0,0.06)",
-  cardShadowHover: "0 4px 12px rgba(0,0,0,0.08), 0 2px 4px rgba(0,0,0,0.04)",
+  card: "var(--card)",
+  cardBorder: "var(--card-border)",
+  cardShadow: "var(--card-shadow)",
+  cardShadowHover: "var(--card-shadow-hover)",
 
   /* accent — warm terracotta (Claude-style) */
-  accent: "#C4704B",
-  accentHover: "#B5613C",
-  accentLight: "rgba(196,112,75,0.08)",
-  accentMedium: "rgba(196,112,75,0.16)",
+  accent: "var(--accent)",
+  accentHover: "var(--accent-hover)",
+  accentLight: "var(--accent-light)",
+  accentMedium: "var(--accent-medium)",
 
   /* semantic colors */
-  success: "#1A8754",
-  successLight: "rgba(26,135,84,0.08)",
-  error: "#D93025",
-  errorLight: "rgba(217,48,37,0.08)",
-  warning: "#E8A317",
-  warningLight: "rgba(232,163,23,0.08)",
+  success: "var(--success)",
+  successLight: "var(--success-light)",
+  error: "var(--error)",
+  errorLight: "var(--error-light)",
+  warning: "var(--warning)",
+  warningLight: "var(--warning-light)",
 
   /* text */
-  textPrimary: "#1A1A1A",
-  textSecondary: "#5F6368",
-  textMuted: "#9AA0A6",
-  textOnAccent: "#FFFFFF",
+  textPrimary: "var(--text-primary)",
+  textSecondary: "var(--text-secondary)",
+  textMuted: "var(--text-muted)",
+  textOnAccent: "var(--text-on-accent)",
 
   /* misc */
-  border: "#E8E4DD",
-  divider: "#F0EDE6",
+  border: "var(--border)",
+  divider: "var(--divider)",
   radius: "12px",
   radiusSm: "8px",
   radiusFull: "9999px",

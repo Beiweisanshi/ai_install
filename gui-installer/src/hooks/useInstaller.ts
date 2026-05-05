@@ -8,10 +8,12 @@ import type {
   BlockingState,
   DetectResult,
   InstallResult,
+  PrecheckResult,
   ProgressEvent,
   RunningProc,
   LaunchMode,
 } from "../types";
+import { formatText } from "../lib/strings";
 import { loadDetectCache, saveDetectCache } from "../lib/storage";
 
 const REQUIRED_TOOLS = ["Git", "Node.js"];
@@ -24,6 +26,11 @@ const NPM_PKG_BY_TOOL: Record<string, string> = {
 };
 
 const MAX_LOG_LINES_PER_TOOL = 500;
+
+export interface PreflightState {
+  tools: string[];
+  result: PrecheckResult;
+}
 
 // Must stay in sync with the backend `InstallerError::Blocked` user_message
 // prefix in `src-tauri/src/installer/npm.rs`.
@@ -50,6 +57,7 @@ export function useInstaller() {
   const [appVersionInfo, setAppVersionInfo] = useState<AppVersionInfo | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [blocking, setBlocking] = useState<BlockingState | null>(null);
+  const [preflight, setPreflight] = useState<PreflightState | null>(null);
 
   const detectTools = useCallback(async (background = false) => {
     if (!background) {
@@ -145,17 +153,37 @@ export function useInstaller() {
       }
 
       const failed = installResults.filter((result) => !result.success);
-      setError(failed.length > 0 ? `${failed.length} 个组件安装失败，请查看安装日志或重试。` : null);
-      setPhase("dashboard");
+      setError(failed.length > 0 ? formatText("install.failedMessage", { count: failed.length }) : null);
+      setPhase("summary");
     } catch (e) {
-      setError(String(e));
-      setPhase("dashboard");
+      const message = normalizeError(e);
+      setResults(toolNames.map((name) => failedInstallResult(name, message)));
+      setError(message);
+      setPhase("summary");
     }
   }, []);
 
   const startInstall = useCallback(async () => {
-    await runInstall(Array.from(selected));
+    const toolNames = Array.from(selected);
+    if (toolNames.length === 0) return;
+    try {
+      const result = await invoke<PrecheckResult>("precheck_install", { tools: toolNames });
+      setPreflight({ tools: toolNames, result });
+    } catch {
+      await runInstall(toolNames);
+    }
   }, [runInstall, selected]);
+
+  const confirmPreflight = useCallback(async () => {
+    if (!preflight) return;
+    const toolNames = preflight.tools;
+    setPreflight(null);
+    await runInstall(toolNames);
+  }, [preflight, runInstall]);
+
+  const cancelPreflight = useCallback(() => {
+    setPreflight(null);
+  }, []);
 
   const openInstall = useCallback((toolName?: string) => {
     if (toolName) {
@@ -169,6 +197,11 @@ export function useInstaller() {
   const goDashboard = useCallback(() => {
     setPhase("dashboard");
   }, []);
+
+  const retryFailed = useCallback(async (toolNames: string[]) => {
+    if (toolNames.length === 0) return;
+    await runInstall(toolNames);
+  }, [runInstall]);
 
   const launchTool = useCallback(async (tool: string, mode: LaunchMode) => {
     try {
@@ -271,6 +304,7 @@ export function useInstaller() {
     appVersionInfo,
     error,
     blocking,
+    preflight,
     toggleTool,
     selectAll,
     deselectAll,
@@ -278,6 +312,9 @@ export function useInstaller() {
     openInstall,
     goDashboard,
     startInstall,
+    retryFailed,
+    confirmPreflight,
+    cancelPreflight,
     launchTool,
     killBlockingAndRetry,
     retryBlocking,
@@ -300,4 +337,19 @@ function defaultInstallSelection(tools: DetectResult[]): DetectResult[] {
   if (missingRequired.length > 0) return missingRequired;
 
   return tools.filter((tool) => tool.installable && (!tool.installed || tool.upgradable));
+}
+
+function failedInstallResult(name: string, message: string): InstallResult {
+  return {
+    name,
+    success: false,
+    version: null,
+    message,
+    duration_ms: 0,
+  };
+}
+
+function normalizeError(error: unknown) {
+  const message = error instanceof Error ? error.message : String(error);
+  return message.replace(/^Error:\s*/, "") || "Install command failed";
 }
