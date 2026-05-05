@@ -5,7 +5,7 @@ import { invoke } from "@tauri-apps/api/core";
 import { formatText, t } from "../lib/strings";
 import { maskKey, toolNameForConfig } from "../lib/toolKeys";
 import { theme } from "../styles/theme";
-import { useDialogKeyboard } from "../hooks/useDialogKeyboard";
+import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type { AiToolId, AppVersionInfo, ChannelConfig, EnvVarInfo } from "../types";
 
 interface SettingsDrawerProps {
@@ -69,7 +69,7 @@ function SettingsDrawer({
   }
 
   return (
-    <div className="fixed inset-0 z-40 flex justify-end bg-black/45">
+    <div className="fixed inset-0 z-40 flex justify-end bg-black/45" onMouseDown={closeOnBackdropMouseDown(onClose)}>
       <aside
         className="h-full w-[420px] max-w-[92vw] overflow-y-auto border-l p-5"
         ref={ref}

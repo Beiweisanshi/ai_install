@@ -23,13 +23,7 @@ function Layout({ children, appVersionInfo, darkMode, onToggleDarkMode }: Layout
           color: theme.textPrimary,
         }}
       >
-        <div className="flex min-h-7 items-center justify-between">
-          <div className="flex items-center gap-2">
-            <img alt="" className="h-6 w-6" src="/assets/logo.svg" />
-            <span className="text-sm font-semibold" style={{ color: theme.textPrimary }}>
-              {t("app.name")}
-            </span>
-          </div>
+        <div className="flex min-h-7 items-center justify-end">
           <div className="flex items-center gap-2">
             <button
               className="btn btn-secondary rounded-lg px-2 py-1 text-xs"

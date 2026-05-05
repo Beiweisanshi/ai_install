@@ -3,7 +3,7 @@ import SettingsDrawer from "./SettingsDrawer";
 import { formatText, t } from "../lib/strings";
 import { DEFAULT_TOOL_CONFIGS, keysForTool, maskKey, toolNameForConfig } from "../lib/toolKeys";
 import { theme } from "../styles/theme";
-import { useDialogKeyboard } from "../hooks/useDialogKeyboard";
+import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type {
   AiToolDefinition,
   AiToolId,
@@ -395,7 +395,7 @@ function LaunchDialog({
   const canLaunch = channel.isDefault ? Boolean(selectedKey) : Boolean(config?.baseUrl && config?.apiKey);
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
         className="w-[460px] max-w-[90vw] max-h-[85vh] overflow-y-auto rounded-lg border p-5"
         ref={dialogRef}
@@ -461,7 +461,7 @@ function DangerConfirmDialog({
   const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
 
   return (
-    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/45 px-4">
+    <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
         className="w-[480px] max-w-[90vw] rounded-lg border p-5"
         ref={dialogRef}
@@ -533,7 +533,7 @@ function DeleteChannelDialog({
 }) {
   const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
         className="w-[420px] max-w-[90vw] rounded-lg border p-5"
         ref={dialogRef}
@@ -572,7 +572,7 @@ function ChannelDialog({
   const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
 
   return (
-    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4">
+    <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
         className="w-[620px] max-w-[90vw] max-h-[85vh] overflow-y-auto rounded-lg border p-5"
         ref={dialogRef}
@@ -682,6 +682,8 @@ function StatusPill({ label, value, tone }: { label: string; value: string; tone
 
 function LaunchButton({ label, command, warning, disabled, onClick }: { label: string; command: string; warning?: boolean; disabled?: boolean; onClick: () => void }) {
   const [copied, setCopied] = useState(false);
+  const [hovered, setHovered] = useState(false);
+  const active = hovered && !disabled;
 
   async function copyCommand(event: { stopPropagation: () => void }) {
     event.stopPropagation();
@@ -694,26 +696,41 @@ function LaunchButton({ label, command, warning, disabled, onClick }: { label: s
     }
   }
 
+  function launch() {
+    if (!disabled) {
+      onClick();
+    }
+  }
+
   return (
     <div
+      aria-disabled={disabled}
       className="rounded-lg border"
-      style={{
-        background: warning ? theme.warningLight : theme.bgSecondary,
-        borderColor: warning ? theme.warning : theme.border,
-        color: theme.textPrimary,
-        opacity: disabled ? 0.5 : 1,
+      onClick={launch}
+      onKeyDown={(event) => {
+        if (disabled || (event.key !== "Enter" && event.key !== " ")) return;
+        event.preventDefault();
+        onClick();
       }}
+      onMouseEnter={() => setHovered(true)}
+      onMouseLeave={() => setHovered(false)}
+      role="button"
+      style={{
+        background: active ? (warning ? theme.warningLight : theme.bgHover) : theme.bgSecondary,
+        borderColor: active ? (warning ? theme.warning : theme.accent) : theme.border,
+        boxShadow: active ? theme.cardShadowHover : "none",
+        color: theme.textPrimary,
+        cursor: disabled ? "not-allowed" : "pointer",
+        opacity: disabled ? 0.5 : 1,
+        transform: active ? "translateY(-1px)" : "none",
+        transition: "border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease, transform 80ms ease",
+      }}
+      tabIndex={disabled ? -1 : 0}
     >
-      <button
-        className="btn btn-secondary block w-full rounded-t-lg px-3 py-2 text-left disabled:cursor-not-allowed"
-        disabled={disabled}
-        onClick={onClick}
-        style={{ background: "transparent" }}
-        type="button"
-      >
+      <div className="px-3 py-2">
         <div className="text-sm font-semibold">{label}</div>
-      </button>
-      <div className="flex items-center gap-2 border-t px-3 py-1.5" style={{ borderColor: warning ? theme.warning : theme.border }}>
+      </div>
+      <div className="flex items-center gap-2 border-t px-3 py-1.5" style={{ borderColor: active ? (warning ? theme.warning : theme.accent) : theme.border }}>
         <span className="min-w-0 flex-1 break-all font-mono text-xs" style={{ color: theme.textSecondary }}>{command}</span>
         <button
           className="btn btn-secondary shrink-0 rounded-md px-2 py-1 text-xs"

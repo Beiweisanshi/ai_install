@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "芝麻灵码 — AI 环境工作台",
+        "title": "AI 环境工作台",
         "width": 900,
         "height": 700,
         "minWidth": 880,

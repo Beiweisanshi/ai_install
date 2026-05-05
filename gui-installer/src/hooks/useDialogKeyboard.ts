@@ -1,4 +1,5 @@
 import { useEffect, useRef } from "react";
+import type { MouseEvent } from "react";
 
 const FOCUSABLE_SELECTOR = [
   "button:not([disabled])",
@@ -49,6 +50,14 @@ export function useDialogKeyboard<T extends HTMLElement>(
   }, [open, onClose]);
 
   return ref;
+}
+
+export function closeOnBackdropMouseDown(onClose: () => void) {
+  return (event: MouseEvent<HTMLElement>) => {
+    if (event.target === event.currentTarget) {
+      onClose();
+    }
+  };
 }
 
 function getFocusable(root: HTMLElement | null) {

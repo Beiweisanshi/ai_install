@@ -1,6 +1,6 @@
 import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
-import { useDialogKeyboard } from "../hooks/useDialogKeyboard";
+import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type { PrecheckResult } from "../types";
 
 interface PreflightDialogProps {
@@ -26,7 +26,7 @@ function PreflightDialog({ tools, result, onCancel, onConfirm }: PreflightDialog
   const lowDisk = result.disk_free_mb > 0 && result.disk_free_mb < estimated * 2;
 
   return (
-    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4">
+    <div className="fixed inset-0 z-40 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
         className="w-[560px] max-w-[90vw] rounded-lg border p-5"
         ref={dialogRef}

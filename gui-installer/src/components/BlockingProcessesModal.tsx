@@ -1,6 +1,6 @@
 import { formatText, t } from "../lib/strings";
 import { theme } from "../styles/theme";
-import { useDialogKeyboard } from "../hooks/useDialogKeyboard";
+import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type { BlockingState } from "../types";
 
 interface BlockingProcessesModalProps {
@@ -20,6 +20,7 @@ function BlockingProcessesModal({
   return (
     <div
       className="fixed inset-0 z-50 flex items-center justify-center"
+      onMouseDown={closeOnBackdropMouseDown(onDismiss)}
       style={{ background: "rgba(0,0,0,0.45)" }}
     >
       <div
