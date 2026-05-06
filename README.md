@@ -1,4 +1,4 @@
-# AI Tools Installer
+# 芝麻工作台
 
 一键安装 AI 编程工具链（Claude CLI / Codex CLI / Gemini CLI）及其依赖，支持 Windows 和 macOS。
 

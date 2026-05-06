@@ -55,7 +55,7 @@ export async function getPublicSettings(): Promise<PublicSettings> {
       promo_code_enabled: false,
       turnstile_enabled: false,
       turnstile_site_key: "",
-      site_name: "zm_tools",
+      site_name: "芝麻工作台",
       api_base_url: API_BASE_URL,
     };
   }

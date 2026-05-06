@@ -550,7 +550,7 @@ mod tests {
     fn test_locate_packages_dir_next_to_macos_app_bundle() {
         let _guard = test_lock().lock().expect("lock tests");
         let root = unique_temp_dir();
-        let app_macos_dir = root.join("zm_tools.app").join("Contents").join("MacOS");
+        let app_macos_dir = root.join("zhima.app").join("Contents").join("MacOS");
         let packages_dir = root.join("packages");
         fs::create_dir_all(&app_macos_dir).expect("create app macos dir");
         fs::create_dir_all(&packages_dir).expect("create packages dir");

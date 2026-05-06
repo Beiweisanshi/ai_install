@@ -1,6 +1,6 @@
 const strings = {
-  "app.name": "AI 环境工作台",
-  "app.dashboard": "AI 环境工作台",
+  "app.name": "芝麻工作台",
+  "app.dashboard": "芝麻工作台",
   "app.detecting": "正在检测当前环境...",
   "app.defaultChannelName": "默认渠道",
   "app.customChannelName": "自定义渠道",

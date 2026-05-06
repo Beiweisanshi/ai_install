@@ -151,11 +151,11 @@ fn script_name(tool: &str) -> String {
     let pid = std::process::id();
     #[cfg(target_os = "windows")]
     {
-        format!("zm_tools_{tool}_{pid}.cmd")
+        format!("zhima_{tool}_{pid}.cmd")
     }
     #[cfg(not(target_os = "windows"))]
     {
-        format!("zm_tools_{tool}_{pid}.sh")
+        format!("zhima_{tool}_{pid}.sh")
     }
 }
 

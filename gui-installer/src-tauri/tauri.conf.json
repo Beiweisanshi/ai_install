@@ -1,6 +1,6 @@
 {
   "$schema": "https://schema.tauri.app/config/2",
-  "productName": "zm_tools",
+  "productName": "芝麻工作台",
   "version": "0.1.0",
   "identifier": "com.ai-tools.installer",
   "build": {
@@ -12,7 +12,7 @@
   "app": {
     "windows": [
       {
-        "title": "AI 环境工作台",
+        "title": "芝麻工作台",
         "width": 900,
         "height": 700,
         "minWidth": 880,
