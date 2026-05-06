@@ -5,6 +5,8 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value};
 use toml_edit::{value, DocumentMut, Item, Table};
 
+use crate::fs_util::atomic_write_bytes;
+
 #[derive(Debug, Deserialize)]
 #[serde(rename_all = "camelCase")]
 #[allow(dead_code)]
@@ -338,52 +340,6 @@ fn read_to_string_or_empty(path: &Path) -> Result<String, String> {
         Ok(text) => Ok(text),
         Err(e) if e.kind() == std::io::ErrorKind::NotFound => Ok(String::new()),
         Err(e) => Err(format!("read {}: {e}", path.display())),
-    }
-}
-
-fn atomic_write_bytes(path: &Path, bytes: &[u8]) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent).map_err(|e| format!("create_dir_all {}: {e}", parent.display()))?;
-    }
-    let tmp = path.with_extension(format!("tmp.{}", std::process::id()));
-    fs::write(&tmp, bytes).map_err(|e| format!("write tmp {}: {e}", tmp.display()))?;
-
-    if fs::rename(&tmp, path).is_ok() {
-        return Ok(());
-    }
-
-    // Fallback: Windows can refuse to overwrite a file that's open by another
-    // process (Claude Code may have settings.json mapped). Move the existing
-    // file aside first, then rename the tmp into place.
-    let bak = path.with_extension(format!("bak.{}", std::process::id()));
-    if path.exists() {
-        if let Err(e) = fs::rename(path, &bak) {
-            let _ = fs::remove_file(&tmp);
-            return Err(format!("backup {} -> {}: {e}", path.display(), bak.display()));
-        }
-    }
-    match fs::rename(&tmp, path) {
-        Ok(()) => {
-            if bak.exists() {
-                let _ = fs::remove_file(&bak);
-            }
-            Ok(())
-        }
-        Err(rename_err) => {
-            // Restore failure must surface — silent loss would leave the
-            // user with their target path missing entirely.
-            if bak.exists() {
-                if let Err(restore_err) = fs::rename(&bak, path) {
-                    let _ = fs::remove_file(&tmp);
-                    return Err(format!(
-                        "rename failed: {rename_err}; restore from {} also failed: {restore_err}",
-                        bak.display()
-                    ));
-                }
-            }
-            let _ = fs::remove_file(&tmp);
-            Err(format!("rename {} -> {}: {rename_err}", tmp.display(), path.display()))
-        }
     }
 }
 

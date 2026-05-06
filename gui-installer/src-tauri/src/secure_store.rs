@@ -3,6 +3,8 @@ use std::path::{Path, PathBuf};
 
 use tauri::{AppHandle, Manager};
 
+use crate::fs_util::atomic_write_bytes;
+
 const SESSION_FILE: &str = "session.bin";
 
 pub fn get_session(app: AppHandle) -> Result<Option<String>, String> {
@@ -30,13 +32,8 @@ pub(crate) fn get_session_at(path: &Path) -> Result<Option<String>, String> {
 }
 
 pub(crate) fn set_session_at(path: &Path, session: &str) -> Result<(), String> {
-    if let Some(parent) = path.parent() {
-        fs::create_dir_all(parent)
-            .map_err(|error| format!("Failed to create session directory: {error}"))?;
-    }
-
     let encrypted = platform::encrypt(session.as_bytes())?;
-    fs::write(path, encrypted).map_err(|error| format!("Failed to write session: {error}"))
+    atomic_write_bytes(path, &encrypted)
 }
 
 pub(crate) fn clear_session_at(path: &Path) -> Result<(), String> {

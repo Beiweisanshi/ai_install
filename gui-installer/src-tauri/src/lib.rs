@@ -2,6 +2,7 @@ mod backend;
 mod channel_config;
 mod commands;
 mod config;
+mod fs_util;
 mod installer;
 mod secure_store;
 mod terminal;
