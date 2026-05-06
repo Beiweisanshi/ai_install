@@ -38,9 +38,40 @@ fn env_lines(env_vars: Vec<EnvVar>) -> Result<Vec<String>, String> {
         .into_iter()
         .map(|item| {
             validate_env_name(&item.name)?;
+            validate_env_value(&item.name, &item.value)?;
             Ok(env_set_line(&item.name, &item.value))
         })
         .collect()
+}
+
+fn validate_env_value(name: &str, value: &str) -> Result<(), String> {
+    // Reject control characters that would break the launch script — CR/LF
+    // would split a single `set "K=V"` into multiple lines, and NUL is
+    // refused by the shell anyway.  Everything else (including spaces,
+    // unicode, `&`, `^`, `%`) is fine because we wrap the value in quotes.
+    if value
+        .chars()
+        .any(|ch| ch == '\r' || ch == '\n' || ch == '\0')
+    {
+        return Err(format!(
+            "Environment variable {name} contains a newline or NUL character"
+        ));
+    }
+
+    // Windows `set "K=V"` syntax forbids embedded `"` inside the quoted
+    // form; PowerShell `set -Item Env:K V` would also choke.  These values
+    // come from API keys / URLs in practice, so a literal `"` is almost
+    // certainly user error rather than legitimate input.
+    #[cfg(target_os = "windows")]
+    {
+        if value.contains('"') {
+            return Err(format!(
+                "Environment variable {name} contains a double quote, which is not supported on Windows launch scripts"
+            ));
+        }
+    }
+
+    Ok(())
 }
 
 fn validate_env_name(name: &str) -> Result<(), String> {

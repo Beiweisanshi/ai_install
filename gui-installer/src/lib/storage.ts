@@ -13,13 +13,11 @@ const PREFERENCES_KEY = "zm_tools_preferences";
 export interface Preferences {
   darkMode: boolean;
   rememberLogin: boolean;
-  detectInterval: number;
 }
 
 const DEFAULT_PREFERENCES: Preferences = {
   darkMode: false,
   rememberLogin: true,
-  detectInterval: 300,
 };
 
 export async function loadSession(): Promise<AuthSession | null> {

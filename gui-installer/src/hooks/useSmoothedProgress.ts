@@ -24,15 +24,28 @@ export function useSmoothedProgress(
   const realRef = useRef(realProgress);
   realRef.current = realProgress;
 
-  // When a real event arrives, immediately update display if real >= display
+  // Sync display with realProgress.  Two reset signals:
+  //   1. A tool is no longer in realProgress — caller cleared it (e.g. a new
+  //      install run starts with `setProgress({})`).  Drop it from display so
+  //      stale 100% from a prior run can't bleed into the next run.
+  //   2. The new event's stage differs from what display remembers — also a
+  //      new run.  Trust the new percent even if it's smaller than the old one.
   useEffect(() => {
     setDisplay((prev) => {
-      const next = { ...prev };
+      const next: typeof prev = {};
       let changed = false;
 
+      for (const [name, value] of Object.entries(prev)) {
+        if (realProgress[name]) {
+          next[name] = value;
+        } else {
+          changed = true;
+        }
+      }
+
       for (const [toolName, event] of Object.entries(realProgress)) {
-        const current = prev[toolName];
-        if (!current || event.percent >= current.percent) {
+        const current = next[toolName];
+        if (!current || event.stage !== current.stage || event.percent >= current.percent) {
           next[toolName] = { percent: event.percent, stage: event.stage };
           changed = true;
         }

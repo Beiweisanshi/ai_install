@@ -19,7 +19,7 @@ use tokio::time::timeout;
 
 use crate::types::{DetectResult, InstallResult, InstallerError, ProgressEvent};
 
-const INSTALL_TIMEOUT_SECS: u64 = 300;
+const INSTALL_TIMEOUT_SECS: u64 = 600;
 
 type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 

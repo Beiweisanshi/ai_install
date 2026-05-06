@@ -174,7 +174,6 @@ const strings = {
   "settings.preferences": "偏好",
   "settings.darkMode": "暗色模式",
   "settings.rememberLogin": "记住登录",
-  "settings.detectInterval": "检测间隔（秒）",
   "settings.about": "关于",
   "settings.currentVersion": "当前版本：v{version}",
   "settings.releaseNotes": "释出说明",

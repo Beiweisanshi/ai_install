@@ -14,7 +14,6 @@ interface SettingsDrawerProps {
   appVersionInfo: AppVersionInfo | null;
   darkMode: boolean;
   rememberLogin: boolean;
-  detectInterval: number;
   onClose: () => void;
   onNewChannel: () => void;
   onEditChannel: (channel: ChannelConfig) => void;
@@ -22,7 +21,6 @@ interface SettingsDrawerProps {
   onSwitchChannel: (id: string) => void;
   onDarkModeChange: (enabled: boolean) => void;
   onRememberLoginChange: (enabled: boolean) => void;
-  onDetectIntervalChange: (seconds: number) => void;
 }
 
 function SettingsDrawer({
@@ -31,7 +29,6 @@ function SettingsDrawer({
   appVersionInfo,
   darkMode,
   rememberLogin,
-  detectInterval,
   onClose,
   onNewChannel,
   onEditChannel,
@@ -39,7 +36,6 @@ function SettingsDrawer({
   onSwitchChannel,
   onDarkModeChange,
   onRememberLoginChange,
-  onDetectIntervalChange,
 }: SettingsDrawerProps) {
   const ref = useDialogKeyboard<HTMLDivElement>(true, onClose);
   const [envVars, setEnvVars] = useState<EnvVarInfo[]>([]);
@@ -179,18 +175,6 @@ function SettingsDrawer({
         <SettingsSection title={t("settings.preferences")}>
           <Toggle label={t("settings.darkMode")} checked={darkMode} onChange={onDarkModeChange} />
           <Toggle label={t("settings.rememberLogin")} checked={rememberLogin} onChange={onRememberLoginChange} />
-          <label className="mt-3 grid gap-1.5 text-sm" style={{ color: theme.textSecondary }}>
-            {t("settings.detectInterval")}
-            <input
-              className="rounded-lg border px-3 py-2"
-              min={10}
-              max={3600}
-              onChange={(event) => onDetectIntervalChange(Number(event.target.value))}
-              style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
-              type="number"
-              value={detectInterval}
-            />
-          </label>
         </SettingsSection>
 
         <SettingsSection title={t("settings.about")}>

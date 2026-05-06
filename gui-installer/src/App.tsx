@@ -328,10 +328,8 @@ function App() {
           appVersionInfo={installer.appVersionInfo}
           darkMode={preferences.darkMode}
           rememberLogin={preferences.rememberLogin}
-          detectInterval={preferences.detectInterval}
           onDarkModeChange={(darkMode) => setPreferences((current) => ({ ...current, darkMode }))}
           onRememberLoginChange={handleRememberLoginChange}
-          onDetectIntervalChange={(detectInterval) => setPreferences((current) => ({ ...current, detectInterval }))}
           profile={profile}
           tools={installer.tools}
         />

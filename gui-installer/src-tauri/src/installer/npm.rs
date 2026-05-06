@@ -83,7 +83,14 @@ impl ToolInstaller for NpmCliInstaller {
     }
 
     fn verify(&self) -> BoxFuture<'_, bool> {
-        Box::pin(async move { command_version(self.cmd, self.args).is_some() })
+        Box::pin(async move {
+            // PATH may have been mutated by the install — refresh once before
+            // probing.  We don't refresh on every command_version() call;
+            // that's expensive and the install pipeline already refreshes
+            // after npm exits successfully.
+            refresh_command_path();
+            command_version(self.cmd, self.args).is_some()
+        })
     }
 
     fn dependencies(&self) -> &'static [&'static str] {
@@ -179,7 +186,11 @@ async fn npm_install(app: &AppHandle, tool_name: &str, pkg: &str) -> Result<(), 
     let stdout_task = spawn_log_reader(stdout, app.clone(), tool_name.to_string());
     let stderr_task = spawn_log_reader(stderr, app.clone(), tool_name.to_string());
 
-    let timeout_result = tokio::time::timeout(Duration::from_secs(180), child.wait()).await;
+    // Inner timeout sits just under the outer pipeline ceiling
+    // (INSTALL_TIMEOUT_SECS in installer/mod.rs = 600s) so npm gets an
+    // explicit "install timed out" error and still leaves headroom for the
+    // outer guard to kill stuck wait()s.
+    let timeout_result = tokio::time::timeout(Duration::from_secs(540), child.wait()).await;
 
     match timeout_result {
         Ok(Ok(status)) => {
@@ -215,7 +226,7 @@ async fn npm_install(app: &AppHandle, tool_name: &str, pkg: &str) -> Result<(), 
             let _ = stdout_task.await;
             let _ = stderr_task.await;
             Err(InstallerError::Timeout {
-                detail: format!("npm install for {pkg} timed out after 180 seconds"),
+                detail: format!("npm install for {pkg} timed out after 540 seconds"),
                 user_message: format!("{pkg} installation timed out"),
             })
         }
@@ -310,8 +321,6 @@ fn success_result(
 }
 
 fn command_version(program: &str, args: &[&str]) -> Option<String> {
-    refresh_command_path();
-
     #[cfg(target_os = "windows")]
     let output = command_output_windows(program, args)?;
 

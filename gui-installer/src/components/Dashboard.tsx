@@ -59,7 +59,6 @@ interface DashboardProps {
   appVersionInfo: AppVersionInfo | null;
   darkMode: boolean;
   rememberLogin: boolean;
-  detectInterval: number;
   onInstall: (toolName?: string) => void;
   onDeleteChannel: (id: string) => void;
   onOpenKeyManager: () => void;
@@ -72,7 +71,6 @@ interface DashboardProps {
   onSelectToolKey: (tool: AiToolId, keyId: number) => void;
   onDarkModeChange: (enabled: boolean) => void;
   onRememberLoginChange: (enabled: boolean) => void;
-  onDetectIntervalChange: (seconds: number) => void;
   onLogout: () => void;
 }
 
@@ -88,7 +86,6 @@ function Dashboard({
   appVersionInfo,
   darkMode,
   rememberLogin,
-  detectInterval,
   onInstall,
   onDeleteChannel,
   onOpenKeyManager,
@@ -101,7 +98,6 @@ function Dashboard({
   onSelectToolKey,
   onDarkModeChange,
   onRememberLoginChange,
-  onDetectIntervalChange,
   onLogout,
 }: DashboardProps) {
   const [selectedTool, setSelectedTool] = useState<AiToolDefinition | null>(null);
@@ -324,14 +320,12 @@ function Dashboard({
           channels={channels}
           currentChannelId={currentChannel.id}
           darkMode={darkMode}
-          detectInterval={detectInterval}
           onClose={() => setSettingsOpen(false)}
           onDarkModeChange={onDarkModeChange}
           onDeleteChannel={(id) => {
             const channel = channels.find((item) => item.id === id);
             if (channel) setDeleteChannel(channel);
           }}
-          onDetectIntervalChange={onDetectIntervalChange}
           onEditChannel={(channel) => {
             setEditingChannel(channel);
             setSettingsOpen(false);
