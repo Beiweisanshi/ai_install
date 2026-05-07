@@ -1,9 +1,14 @@
 import { useEffect, useMemo, useState } from "react";
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
 import SettingsDrawer from "./SettingsDrawer";
 import { formatText, t } from "../lib/strings";
 import { DEFAULT_TOOL_CONFIGS, keysForTool, maskKey, toolNameForConfig } from "../lib/toolKeys";
 import { findMode, getModes, previewCommand, type LaunchModeDef } from "../lib/launchModes";
-import { loadRecentCwds } from "../lib/storage";
+import {
+  loadRecentCwds,
+  matchesLastConfirmedLaunch,
+  saveLastConfirmedLaunch,
+} from "../lib/storage";
 import { theme } from "../styles/theme";
 import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type {
@@ -269,9 +274,15 @@ function Dashboard({
           apiKeys={apiKeys}
           channel={currentChannel}
           keySelections={keySelections}
+          keyboardActive={!pendingLaunch}
           onCancel={() => setSelectedTool(null)}
           onPick={(mode, cwd) => {
             if (mode.dangerLevel === "dangerous") {
+              if (matchesLastConfirmedLaunch(selectedTool.id, mode.id, cwd)) {
+                onLaunch(selectedTool.id, mode.id, cwd);
+                setSelectedTool(null);
+                return;
+              }
               setPendingLaunch({ tool: selectedTool, modeId: mode.id, cwd });
               return;
             }
@@ -288,6 +299,10 @@ function Dashboard({
           modeId={pendingLaunch.modeId}
           onCancel={() => setPendingLaunch(null)}
           onConfirm={() => {
+            saveLastConfirmedLaunch(pendingLaunch.tool.id, {
+              modeId: pendingLaunch.modeId,
+              cwd: pendingLaunch.cwd,
+            });
             onLaunch(pendingLaunch.tool.id, pendingLaunch.modeId, pendingLaunch.cwd);
             setPendingLaunch(null);
             setSelectedTool(null);
@@ -355,6 +370,7 @@ function LaunchDialog({
   onSelectToolKey,
   onCancel,
   onPick,
+  keyboardActive,
 }: {
   selectedTool: AiToolDefinition;
   channel: ChannelConfig;
@@ -363,8 +379,9 @@ function LaunchDialog({
   onSelectToolKey: (tool: AiToolId, keyId: number) => void;
   onCancel: () => void;
   onPick: (mode: LaunchModeDef, cwd: string | null) => void;
+  keyboardActive: boolean;
 }) {
-  const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
+  const dialogRef = useDialogKeyboard<HTMLDivElement>(keyboardActive, onCancel);
   const matchingKeys = keysForTool(apiKeys, selectedTool.id);
   const selectedKey = matchingKeys.find((key) => key.id === keySelections[selectedTool.id]) ?? matchingKeys[0];
   const config = channel.toolConfigs[selectedTool.id];
@@ -373,19 +390,43 @@ function LaunchDialog({
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [cwdInput, setCwdInput] = useState("");
 
+  const modes = useMemo(() => getModes(selectedTool.id), [selectedTool.id]);
+  const [selectedModeId, setSelectedModeId] = useState<string>(() => modes[0].id);
+
   useEffect(() => {
     const list = loadRecentCwds();
     setRecentCwds(list);
     setCwdInput(list[0] ?? "");
   }, []);
 
-  const modes = useMemo(() => getModes(selectedTool.id), [selectedTool.id]);
+  const selectedMode = useMemo(
+    () => modes.find((mode) => mode.id === selectedModeId),
+    [modes, selectedModeId],
+  );
+  const trimmedCwd = cwdInput.trim();
+  const launchEnabled = Boolean(selectedMode) && canLaunch && trimmedCwd !== "";
 
-  const handlePick = (mode: LaunchModeDef) => {
-    if (!canLaunch) return;
-    const cwd = cwdInput.trim() || null;
-    onPick(mode, cwd);
+  const handleBrowseDir = async () => {
+    try {
+      const picked = await openDialog({
+        directory: true,
+        multiple: false,
+        defaultPath: trimmedCwd || undefined,
+      });
+      if (typeof picked === "string" && picked.length > 0) {
+        setCwdInput(picked);
+      }
+    } catch {
+      // User cancelled, or vite dev browser has no Tauri runtime — silent.
+    }
   };
+
+  const handleLaunch = () => {
+    if (!selectedMode || !canLaunch || trimmedCwd === "") return;
+    onPick(selectedMode, trimmedCwd);
+  };
+
+  const launchButtonBg = selectedMode?.dangerLevel === "dangerous" ? theme.error : theme.accent;
 
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
@@ -441,39 +482,71 @@ function LaunchDialog({
                 <option key={path} value={path}>{path}</option>
               ))}
             </select>
-            <input
-              className="rounded-lg border px-3 py-2 text-sm"
-              onChange={(event) => setCwdInput(event.target.value)}
-              placeholder={t("dashboard.cwd.placeholder")}
-              style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
-              type="text"
-              value={cwdInput}
-            />
+            <div className="flex gap-2">
+              <input
+                className="flex-1 rounded-lg border px-3 py-2 text-sm"
+                onChange={(event) => setCwdInput(event.target.value)}
+                placeholder={t("dashboard.cwd.placeholder")}
+                style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+                type="text"
+                value={cwdInput}
+              />
+              <button
+                className="btn btn-secondary whitespace-nowrap rounded-lg px-3 py-2 text-sm"
+                onClick={() => void handleBrowseDir()}
+                style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+                type="button"
+              >
+                {t("dashboard.cwd.browse")}
+              </button>
+            </div>
           </section>
 
-          <section aria-label={t("dashboard.launchModeTitle")} className="grid gap-2">
+          <section aria-label={t("dashboard.launchModeTitle")} className="grid gap-1.5">
             <h3 className="text-sm font-semibold" style={{ color: theme.textPrimary }}>
               {t("dashboard.launchModeTitle")}
             </h3>
-            {modes.map((mode) => (
-              <LaunchButton
-                command={previewCommand(mode)}
-                disabled={!canLaunch}
-                key={mode.id}
-                label={t(mode.labelKey)}
-                onClick={() => handlePick(mode)}
-                warning={mode.dangerLevel !== "safe"}
-              />
-            ))}
+            <select
+              aria-label={t("dashboard.launchModeTitle")}
+              className="rounded-lg border px-3 py-2 text-sm"
+              onChange={(event) => setSelectedModeId(event.target.value)}
+              style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+              value={selectedModeId}
+            >
+              {modes.map((mode) => (
+                <option key={mode.id} value={mode.id}>{t(mode.labelKey)}</option>
+              ))}
+            </select>
+            {selectedMode && (
+              <div
+                className="rounded-md border px-3 py-2 font-mono text-xs"
+                style={{
+                  background: theme.bgTertiary,
+                  borderColor: selectedMode.dangerLevel !== "safe" ? theme.warning : theme.border,
+                  color: theme.textSecondary,
+                }}
+              >
+                {previewCommand(selectedMode)}
+              </div>
+            )}
           </section>
 
           <p className="text-[11px] leading-relaxed" style={{ color: theme.textMuted }}>
             {t("dashboard.envNotice")}
           </p>
         </div>
-        <div className="mt-4 flex justify-end">
+        <div className="mt-4 flex justify-end gap-2">
           <button className="btn btn-text rounded-lg px-3 py-1.5 text-sm" onClick={onCancel} style={{ color: theme.textSecondary }} type="button">
             {t("common.cancel")}
+          </button>
+          <button
+            className="btn btn-primary rounded-lg px-4 py-1.5 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-50"
+            disabled={!launchEnabled}
+            onClick={handleLaunch}
+            style={{ background: launchButtonBg, color: theme.textOnAccent }}
+            type="button"
+          >
+            {t("dashboard.launch")}
           </button>
         </div>
       </div>
@@ -713,71 +786,6 @@ function StatusPill({ label, value, tone }: { label: string; value: string; tone
     <div className="rounded-lg px-4 py-3" style={{ background }}>
       <div className="text-[11px]" style={{ color: theme.textMuted }}>{label}</div>
       <div className="mt-1 text-base font-semibold" style={{ color }}>{value}</div>
-    </div>
-  );
-}
-
-function LaunchButton({ label, command, warning, disabled, onClick }: { label: string; command: string; warning?: boolean; disabled?: boolean; onClick: () => void }) {
-  const [copied, setCopied] = useState(false);
-  const [hovered, setHovered] = useState(false);
-  const active = hovered && !disabled;
-
-  async function copyCommand(event: { stopPropagation: () => void }) {
-    event.stopPropagation();
-    try {
-      await navigator.clipboard.writeText(command);
-      setCopied(true);
-      window.setTimeout(() => setCopied(false), 1500);
-    } catch {
-      setCopied(false);
-    }
-  }
-
-  function launch() {
-    if (!disabled) {
-      onClick();
-    }
-  }
-
-  return (
-    <div
-      aria-disabled={disabled}
-      className="rounded-lg border"
-      onClick={launch}
-      onKeyDown={(event) => {
-        if (disabled || (event.key !== "Enter" && event.key !== " ")) return;
-        event.preventDefault();
-        onClick();
-      }}
-      onMouseEnter={() => setHovered(true)}
-      onMouseLeave={() => setHovered(false)}
-      role="button"
-      style={{
-        background: active ? (warning ? theme.warningLight : theme.bgHover) : theme.bgSecondary,
-        borderColor: active ? (warning ? theme.warning : theme.accent) : theme.border,
-        boxShadow: active ? theme.cardShadowHover : "none",
-        color: theme.textPrimary,
-        cursor: disabled ? "not-allowed" : "pointer",
-        opacity: disabled ? 0.5 : 1,
-        transform: active ? "translateY(-1px)" : "none",
-        transition: "border-color 120ms ease, background-color 120ms ease, box-shadow 120ms ease, transform 80ms ease",
-      }}
-      tabIndex={disabled ? -1 : 0}
-    >
-      <div className="px-3 py-2">
-        <div className="text-sm font-semibold">{label}</div>
-      </div>
-      <div className="flex items-center gap-2 border-t px-3 py-1.5" style={{ borderColor: active ? (warning ? theme.warning : theme.accent) : theme.border }}>
-        <span className="min-w-0 flex-1 break-all font-mono text-xs" style={{ color: theme.textSecondary }}>{command}</span>
-        <button
-          className="btn btn-secondary shrink-0 rounded-md px-2 py-1 text-xs"
-          onClick={(event) => void copyCommand(event)}
-          style={{ background: theme.bgTertiary, color: theme.textSecondary }}
-          type="button"
-        >
-          {copied ? t("common.copied") : t("common.copy")}
-        </button>
-      </div>
     </div>
   );
 }

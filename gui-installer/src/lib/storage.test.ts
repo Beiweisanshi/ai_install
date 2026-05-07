@@ -1,11 +1,19 @@
 import { invoke } from "@tauri-apps/api/core";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { loadRecentCwds, loadSession, pushRecentCwd } from "./storage";
+import {
+  loadLastConfirmedLaunch,
+  loadRecentCwds,
+  loadSession,
+  matchesLastConfirmedLaunch,
+  pushRecentCwd,
+  saveLastConfirmedLaunch,
+} from "./storage";
 import type { AuthSession } from "../types";
 
 const SESSION_KEY = "zm_tools_auth_session";
 const RECENT_CWDS_KEY = "zm_tools_recent_cwds";
+const LAST_CONFIRMED_LAUNCH_KEY = "zm_tools_last_confirmed_launch";
 
 function session(overrides: Partial<AuthSession> = {}): AuthSession {
   return {
@@ -86,5 +94,51 @@ describe("pushRecentCwd", () => {
   it("trims whitespace before persisting", () => {
     pushRecentCwd("  D:\\with-space  ");
     expect(loadRecentCwds()).toEqual(["D:\\with-space"]);
+  });
+});
+
+describe("last-confirmed launch persistence", () => {
+  beforeEach(() => {
+    localStorage.clear();
+  });
+
+  it("returns an empty map when storage is empty", () => {
+    expect(loadLastConfirmedLaunch()).toEqual({});
+  });
+
+  it("returns an empty map when storage is corrupt JSON (and does not throw)", () => {
+    localStorage.setItem(LAST_CONFIRMED_LAUNCH_KEY, "not-json");
+    expect(loadLastConfirmedLaunch()).toEqual({});
+  });
+
+  it("filters unknown toolIds and entries with wrong field types", () => {
+    localStorage.setItem(
+      LAST_CONFIRMED_LAUNCH_KEY,
+      JSON.stringify({
+        codex: { modeId: "codex.dangerous", cwd: "D:\\a" },
+        bogus: { modeId: "bogus.x", cwd: null },
+        claude: { modeId: 123, cwd: null },
+        gemini: { modeId: "gemini.yolo", cwd: 42 },
+        opencode: "not-an-object",
+      }),
+    );
+    expect(loadLastConfirmedLaunch()).toEqual({
+      codex: { modeId: "codex.dangerous", cwd: "D:\\a" },
+    });
+  });
+
+  it("save + matches round-trip: equal returns true; any differing field returns false", () => {
+    saveLastConfirmedLaunch("codex", { modeId: "codex.dangerous", cwd: "D:\\proj" });
+
+    expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", "D:\\proj")).toBe(true);
+    expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", "D:\\other")).toBe(false);
+    expect(matchesLastConfirmedLaunch("codex", "codex.default", "D:\\proj")).toBe(false);
+    expect(matchesLastConfirmedLaunch("claude", "codex.dangerous", "D:\\proj")).toBe(false);
+  });
+
+  it("treats cwd:null as strictly distinct from cwd:''", () => {
+    saveLastConfirmedLaunch("codex", { modeId: "codex.dangerous", cwd: null });
+    expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", null)).toBe(true);
+    expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", "")).toBe(false);
   });
 });

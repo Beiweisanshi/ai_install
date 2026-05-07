@@ -112,6 +112,8 @@ const strings = {
   "dashboard.launchModeTitle": "启动模式",
   "dashboard.cwd.useGuiCwd": "（使用应用默认目录）",
   "dashboard.cwd.placeholder": "粘贴或输入项目路径",
+  "dashboard.cwd.browse": "选择目录",
+  "dashboard.launch": "启动",
   "dashboard.mode.codex.default": "默认",
   "dashboard.mode.codex.read-only": "只读沙箱",
   "dashboard.mode.codex.auto": "自动批准（沙箱内）",

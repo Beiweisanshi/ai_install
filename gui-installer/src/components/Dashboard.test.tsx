@@ -6,9 +6,17 @@ import type { Mock } from "vitest";
 import Dashboard from "./Dashboard";
 import type { AiToolId, ApiKey, ChannelConfig, DetectResult, UserProfile } from "../types";
 
+vi.mock("@tauri-apps/plugin-dialog", () => ({
+  open: vi.fn(),
+}));
+
+import { open as openDialog } from "@tauri-apps/plugin-dialog";
+
 type LaunchHandler = (tool: AiToolId, modeId: string, cwd: string | null) => void;
 
 const RECENT_CWDS_KEY = "zm_tools_recent_cwds";
+const LAST_CONFIRMED_LAUNCH_KEY = "zm_tools_last_confirmed_launch";
+const DEFAULT_CWD = "D:\\proj";
 
 function detectResult(name: string, installed = true): DetectResult {
   return {
@@ -121,46 +129,99 @@ async function openLaunchDialog(toolName: string) {
   return user;
 }
 
+function getLaunchDialog() {
+  // The first dialog is the LaunchDialog; the danger confirmation, when
+  // present, is the second/last dialog (z-index 30).
+  const dialogs = screen.getAllByRole("dialog");
+  return dialogs[0];
+}
+
+function getDangerDialog() {
+  const dialogs = screen.getAllByRole("dialog");
+  return dialogs[dialogs.length - 1];
+}
+
+async function selectMode(user: ReturnType<typeof userEvent.setup>, label: string) {
+  const dialog = getLaunchDialog();
+  const select = within(dialog).getByRole("combobox", { name: "启动模式" });
+  await user.selectOptions(select, within(select).getByRole("option", { name: label }));
+}
+
+async function fillCwd(user: ReturnType<typeof userEvent.setup>, value: string) {
+  const dialog = getLaunchDialog();
+  const input = within(dialog).getAllByRole("textbox")[0];
+  await user.clear(input);
+  if (value.length > 0) {
+    await user.type(input, value);
+  }
+}
+
+async function clickLaunch(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = getLaunchDialog();
+  await user.click(within(dialog).getByRole("button", { name: "启动" }));
+}
+
+async function confirmDanger(user: ReturnType<typeof userEvent.setup>) {
+  const dialog = getDangerDialog();
+  await user.click(within(dialog).getByRole("checkbox"));
+  await user.click(within(dialog).getByRole("button", { name: "继续启动" }));
+}
+
 describe("Dashboard launch dialog", () => {
   beforeEach(() => {
     localStorage.clear();
+    vi.mocked(openDialog).mockReset();
+    // Pre-populate the recent cwd list so cwd is non-empty by default.
+    localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify([DEFAULT_CWD]));
   });
 
   afterEach(() => {
     localStorage.clear();
   });
 
-  it("renders the full claude mode list (5 buttons) inside the launch dialog", async () => {
+  it("renders the full claude mode list (5 options) inside the launch dialog", async () => {
     renderDashboard();
-    await openLaunchDialog("Claude");
+    const user = await openLaunchDialog("Claude");
+    void user;
 
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("默认")).toBeInTheDocument();
-    expect(within(dialog).getByText("自动接受编辑")).toBeInTheDocument();
-    expect(within(dialog).getByText("Plan 模式")).toBeInTheDocument();
-    expect(within(dialog).getByText("智能自动")).toBeInTheDocument();
-    expect(within(dialog).getByText("危险：跳过所有权限检查")).toBeInTheDocument();
+    const dialog = getLaunchDialog();
+    const select = within(dialog).getByRole("combobox", { name: "启动模式" });
+    expect(within(select).getByRole("option", { name: "默认" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "自动接受编辑" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "Plan 模式" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "智能自动" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "危险：跳过所有权限检查" })).toBeInTheDocument();
   });
 
-  it("renders the full opencode mode list (2 buttons) inside the launch dialog", async () => {
+  it("renders the full opencode mode list (2 options) inside the launch dialog", async () => {
     renderDashboard();
     await openLaunchDialog("OpenCode");
 
-    const dialog = screen.getByRole("dialog");
-    expect(within(dialog).getByText("默认")).toBeInTheDocument();
-    expect(within(dialog).getByText("允许全部权限")).toBeInTheDocument();
+    const dialog = getLaunchDialog();
+    const select = within(dialog).getByRole("combobox", { name: "启动模式" });
+    expect(within(select).getByRole("option", { name: "默认" })).toBeInTheDocument();
+    expect(within(select).getByRole("option", { name: "允许全部权限" })).toBeInTheDocument();
   });
 
   it("invokes onLaunch immediately for caution-level modes (no danger confirmation)", async () => {
     const { onLaunch } = renderDashboard();
     const user = await openLaunchDialog("Gemini");
 
-    const dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByText("YOLO（自动接受全部）"));
+    await selectMode(user, "YOLO（自动接受全部）");
+    await clickLaunch(user);
 
     expect(onLaunch).toHaveBeenCalledTimes(1);
-    expect(onLaunch).toHaveBeenCalledWith("gemini", "gemini.yolo", null);
-    // No second dialog (the danger modal) should appear.
+    expect(onLaunch).toHaveBeenCalledWith("gemini", "gemini.yolo", DEFAULT_CWD);
+    expect(screen.queryByText(/确认以最高权限启动/)).not.toBeInTheDocument();
+  });
+
+  it("does not launch when a mode is selected from the dropdown (no implicit launch)", async () => {
+    const { onLaunch } = renderDashboard();
+    const user = await openLaunchDialog("Codex");
+
+    await selectMode(user, "危险：绕过审批与沙箱");
+
+    expect(onLaunch).not.toHaveBeenCalled();
     expect(screen.queryByText(/确认以最高权限启动/)).not.toBeInTheDocument();
   });
 
@@ -168,21 +229,16 @@ describe("Dashboard launch dialog", () => {
     const { onLaunch } = renderDashboard();
     const user = await openLaunchDialog("Codex");
 
-    let dialog = screen.getByRole("dialog");
-    await user.click(within(dialog).getByText("危险：绕过审批与沙箱"));
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
 
-    // onLaunch must NOT have fired yet — we await user confirmation first.
     expect(onLaunch).not.toHaveBeenCalled();
     expect(screen.getByText(/确认以最高权限启动 Codex/)).toBeInTheDocument();
 
-    // Tick the risk acknowledgement and confirm.
-    const dialogs = screen.getAllByRole("dialog");
-    dialog = dialogs[dialogs.length - 1];
-    await user.click(within(dialog).getByRole("checkbox"));
-    await user.click(within(dialog).getByRole("button", { name: "继续启动" }));
+    await confirmDanger(user);
 
     expect(onLaunch).toHaveBeenCalledTimes(1);
-    expect(onLaunch).toHaveBeenCalledWith("codex", "codex.dangerous", null);
+    expect(onLaunch).toHaveBeenCalledWith("codex", "codex.dangerous", DEFAULT_CWD);
   });
 
   it("preselects the most-recent cwd from localStorage", async () => {
@@ -194,11 +250,10 @@ describe("Dashboard launch dialog", () => {
     renderDashboard();
     await openLaunchDialog("Codex");
 
-    const dialog = screen.getByRole("dialog");
+    const dialog = getLaunchDialog();
     const inputs = within(dialog).getAllByRole("textbox");
     expect(inputs[0]).toHaveValue("D:\\study\\ai_download\\ai_install");
 
-    // The recent paths should also be available in the dropdown.
     const select = within(dialog).getByRole("combobox", { name: "工作目录" });
     expect(within(select).getByText("D:\\study\\ai_download\\ai_install")).toBeInTheDocument();
     expect(within(select).getByText("D:\\other")).toBeInTheDocument();
@@ -208,13 +263,164 @@ describe("Dashboard launch dialog", () => {
     const { onLaunch } = renderDashboard();
     const user = await openLaunchDialog("Codex");
 
-    const dialog = screen.getByRole("dialog");
-    const input = within(dialog).getAllByRole("textbox")[0];
-    await user.clear(input);
-    await user.type(input, "C:\\projects\\demo");
-
-    await user.click(within(dialog).getByText("默认"));
+    await fillCwd(user, "C:\\projects\\demo");
+    await selectMode(user, "默认");
+    await clickLaunch(user);
 
     expect(onLaunch).toHaveBeenCalledWith("codex", "codex.default", "C:\\projects\\demo");
+  });
+});
+
+describe("Dashboard launch button — disabled conditions", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(openDialog).mockReset();
+    localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify([DEFAULT_CWD]));
+  });
+
+  it("disables the launch button when cwd is empty or whitespace-only", async () => {
+    renderDashboard();
+    const user = await openLaunchDialog("Codex");
+
+    const dialog = getLaunchDialog();
+    const launchBtn = within(dialog).getByRole("button", { name: "启动" });
+
+    // Pre-populated → enabled.
+    expect(launchBtn).not.toBeDisabled();
+
+    // Empty cwd → disabled.
+    await fillCwd(user, "");
+    expect(launchBtn).toBeDisabled();
+
+    // Whitespace-only cwd → still disabled (trimmed).
+    await fillCwd(user, "   ");
+    expect(launchBtn).toBeDisabled();
+
+    // Non-empty cwd → enabled again.
+    await fillCwd(user, "C:\\x");
+    expect(launchBtn).not.toBeDisabled();
+  });
+});
+
+describe("Dashboard dangerous-launch dedup", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(openDialog).mockReset();
+    localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify([DEFAULT_CWD]));
+  });
+
+  it("skips the danger dialog on a second identical dangerous launch", async () => {
+    const { onLaunch } = renderDashboard();
+    let user = await openLaunchDialog("Codex");
+
+    // First launch: danger dialog appears, user confirms.
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+    expect(screen.getByText(/确认以最高权限启动 Codex/)).toBeInTheDocument();
+    await confirmDanger(user);
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+
+    // Re-open the launch dialog with identical cwd+mode.
+    user = await openLaunchDialog("Codex");
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+
+    // Danger dialog must NOT re-appear; onLaunch fires directly.
+    expect(screen.queryByText(/确认以最高权限启动/)).not.toBeInTheDocument();
+    expect(onLaunch).toHaveBeenCalledTimes(2);
+    expect(onLaunch).toHaveBeenLastCalledWith("codex", "codex.dangerous", DEFAULT_CWD);
+  });
+
+  it("re-prompts the danger dialog when cwd changes between launches", async () => {
+    const { onLaunch } = renderDashboard();
+    let user = await openLaunchDialog("Codex");
+
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+    await confirmDanger(user);
+
+    user = await openLaunchDialog("Codex");
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await fillCwd(user, "D:\\different");
+    await clickLaunch(user);
+
+    expect(screen.getByText(/确认以最高权限启动 Codex/)).toBeInTheDocument();
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not share dedup state across tools (codex confirm does not skip claude)", async () => {
+    const { onLaunch } = renderDashboard();
+    let user = await openLaunchDialog("Codex");
+
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+    await confirmDanger(user);
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+
+    user = await openLaunchDialog("Claude");
+    await selectMode(user, "危险：跳过所有权限检查");
+    await clickLaunch(user);
+
+    expect(screen.getByText(/确认以最高权限启动 Claude/)).toBeInTheDocument();
+    expect(onLaunch).toHaveBeenCalledTimes(1);
+  });
+
+  it("falls back to the danger dialog when last-confirmed storage is corrupt", async () => {
+    localStorage.setItem(LAST_CONFIRMED_LAUNCH_KEY, "not-json");
+
+    const { onLaunch } = renderDashboard();
+    const user = await openLaunchDialog("Codex");
+
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+
+    expect(screen.getByText(/确认以最高权限启动 Codex/)).toBeInTheDocument();
+    expect(onLaunch).not.toHaveBeenCalled();
+  });
+
+  it("keeps the LaunchDialog open after the user cancels the danger dialog", async () => {
+    renderDashboard();
+    const user = await openLaunchDialog("Codex");
+
+    await selectMode(user, "危险：绕过审批与沙箱");
+    await clickLaunch(user);
+
+    // Danger dialog visible.
+    expect(screen.getByText(/确认以最高权限启动 Codex/)).toBeInTheDocument();
+    // Cancel the danger dialog.
+    const dangerDialog = getDangerDialog();
+    await user.click(within(dangerDialog).getByRole("button", { name: "取消" }));
+
+    // Danger dialog gone; LaunchDialog still mounted.
+    expect(screen.queryByText(/确认以最高权限启动/)).not.toBeInTheDocument();
+    expect(screen.getByText(/打开 Codex/)).toBeInTheDocument();
+  });
+});
+
+describe("Dashboard browse-directory button", () => {
+  beforeEach(() => {
+    localStorage.clear();
+    vi.mocked(openDialog).mockReset();
+    localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify([DEFAULT_CWD]));
+  });
+
+  it("calls plugin-dialog.open and writes the picked path back to the cwd input", async () => {
+    vi.mocked(openDialog).mockResolvedValueOnce("D:\\picked\\dir");
+
+    renderDashboard();
+    const user = await openLaunchDialog("Codex");
+
+    const dialog = getLaunchDialog();
+    await user.click(within(dialog).getByRole("button", { name: "选择目录" }));
+
+    expect(openDialog).toHaveBeenCalledTimes(1);
+    expect(openDialog).toHaveBeenCalledWith({
+      directory: true,
+      multiple: false,
+      defaultPath: DEFAULT_CWD,
+    });
+
+    const input = within(dialog).getAllByRole("textbox")[0];
+    expect(input).toHaveValue("D:\\picked\\dir");
   });
 });

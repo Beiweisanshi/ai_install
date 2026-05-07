@@ -1,6 +1,6 @@
 import { invoke } from "@tauri-apps/api/core";
 
-import type { ActiveSettings, AuthSession, ChannelConfig, DetectResult, ToolKeySelections } from "../types";
+import type { ActiveSettings, AiToolId, AuthSession, ChannelConfig, DetectResult, ToolKeySelections } from "../types";
 
 const SESSION_KEY = "zm_tools_auth_session";
 const API_KEY_KEY = "zm_tools_selected_api_key";
@@ -11,6 +11,16 @@ const DETECT_CACHE_KEY = "zm_tools_detect_cache";
 const PREFERENCES_KEY = "zm_tools_preferences";
 const RECENT_CWDS_KEY = "zm_tools_recent_cwds";
 const RECENT_CWDS_MAX = 5;
+const LAST_CONFIRMED_LAUNCH_KEY = "zm_tools_last_confirmed_launch";
+
+const KNOWN_TOOL_IDS: ReadonlyArray<AiToolId> = ["codex", "claude", "gemini", "opencode"];
+
+export interface LastConfirmedLaunch {
+  modeId: string;
+  cwd: string | null;
+}
+
+export type LastConfirmedLaunchMap = Partial<Record<AiToolId, LastConfirmedLaunch>>;
 
 export interface Preferences {
   darkMode: boolean;
@@ -154,6 +164,43 @@ export function pushRecentCwd(path: string | null | undefined): string[] {
   const next = [head, ...rest].slice(0, RECENT_CWDS_MAX);
   saveRecentCwds(next);
   return next;
+}
+
+// Per-tool persistence of "the last DangerConfirmDialog confirmation" so
+// repeating an identical dangerous launch (same modeId + cwd) can skip the
+// confirmation modal. Stored as a map keyed by AiToolId; entries are validated
+// at load time so a corrupted/forged value is treated as "no record" → the
+// confirmation modal still fires.
+export function loadLastConfirmedLaunch(): LastConfirmedLaunchMap {
+  const raw = readJson<unknown>(LAST_CONFIRMED_LAUNCH_KEY);
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return {};
+  const map = raw as Record<string, unknown>;
+  const out: LastConfirmedLaunchMap = {};
+  for (const toolId of KNOWN_TOOL_IDS) {
+    const entry = map[toolId];
+    if (!entry || typeof entry !== "object") continue;
+    const v = entry as { modeId?: unknown; cwd?: unknown };
+    if (typeof v.modeId !== "string") continue;
+    if (v.cwd !== null && typeof v.cwd !== "string") continue;
+    out[toolId] = { modeId: v.modeId, cwd: v.cwd };
+  }
+  return out;
+}
+
+export function saveLastConfirmedLaunch(tool: AiToolId, entry: LastConfirmedLaunch): void {
+  const map = loadLastConfirmedLaunch();
+  map[tool] = entry;
+  localStorage.setItem(LAST_CONFIRMED_LAUNCH_KEY, JSON.stringify(map));
+}
+
+export function matchesLastConfirmedLaunch(
+  tool: AiToolId,
+  modeId: string,
+  cwd: string | null,
+): boolean {
+  const entry = loadLastConfirmedLaunch()[tool];
+  if (!entry) return false;
+  return entry.modeId === modeId && entry.cwd === cwd;
 }
 
 function readJson<T>(key: string): T | null {
