@@ -24,6 +24,7 @@ import {
   loadPreferences,
   loadSession,
   loadToolKeySelections,
+  pushRecentCwd,
   readActiveSettings,
   saveChannels,
   saveCurrentChannelId,
@@ -41,7 +42,6 @@ import type {
   AppPhase,
   AuthSession,
   ChannelConfig,
-  LaunchMode,
   ToolChannelConfig,
   ToolKeySelections,
   UserProfile,
@@ -266,7 +266,7 @@ function App() {
     }
   };
 
-  const launchTool = async (tool: AiToolId, mode: LaunchMode) => {
+  const launchTool = async (tool: AiToolId, modeId: string, cwd: string | null) => {
     const resolved = resolveToolConfig(currentChannel, apiKeys, keySelections, tool);
     if (!resolved) {
       setChannelError(currentChannel.isDefault ? t("dashboard.noMatchingKeyError") : t("dashboard.incompleteCustomChannel"));
@@ -277,9 +277,11 @@ function App() {
     try {
       await invoke("launch_ai_tool", {
         tool,
-        mode,
+        mode: modeId,
+        cwd,
         envVars: envVarsForTool(tool, resolved),
       });
+      if (cwd) pushRecentCwd(cwd);
     } catch (e) {
       setChannelError(normalizeError(e));
     }

@@ -68,7 +68,10 @@ export type AppPhase =
   | "selecting"
   | "installing"
   | "summary";
-export type LaunchMode = "normal" | "elevated";
+// Mode IDs are open strings (e.g. "codex.default") validated by findMode().
+// Legacy "normal"/"elevated" payloads are still accepted by the Rust resolver
+// for back-compat with old launch invocations on disk.
+export type LaunchMode = string;
 export type AiToolId = "codex" | "claude" | "gemini" | "opencode";
 export type GroupPlatform = "anthropic" | "openai" | "gemini" | "antigravity" | string;
 
@@ -76,8 +79,6 @@ export interface AiToolDefinition {
   id: AiToolId;
   name: string;
   detectName: string;
-  normalCommand: string;
-  elevatedCommand: string;
 }
 
 export interface UserInfo {

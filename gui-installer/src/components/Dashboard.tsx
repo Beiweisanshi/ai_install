@@ -1,7 +1,9 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import SettingsDrawer from "./SettingsDrawer";
 import { formatText, t } from "../lib/strings";
 import { DEFAULT_TOOL_CONFIGS, keysForTool, maskKey, toolNameForConfig } from "../lib/toolKeys";
+import { findMode, getModes, previewCommand, type LaunchModeDef } from "../lib/launchModes";
+import { loadRecentCwds } from "../lib/storage";
 import { theme } from "../styles/theme";
 import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogKeyboard";
 import type {
@@ -11,40 +13,15 @@ import type {
   ApiKey,
   ChannelConfig,
   DetectResult,
-  LaunchMode,
   ToolKeySelections,
   UserProfile,
 } from "../types";
 
 const AI_TOOLS: AiToolDefinition[] = [
-  {
-    id: "codex",
-    name: "Codex",
-    detectName: "Codex CLI",
-    normalCommand: "codex",
-    elevatedCommand: "codex --dangerously-bypass-approvals-and-sandbox",
-  },
-  {
-    id: "claude",
-    name: "Claude",
-    detectName: "Claude CLI",
-    normalCommand: "claude",
-    elevatedCommand: "claude --dangerously-skip-permissions",
-  },
-  {
-    id: "gemini",
-    name: "Gemini",
-    detectName: "Gemini CLI",
-    normalCommand: "gemini",
-    elevatedCommand: "gemini --yolo",
-  },
-  {
-    id: "opencode",
-    name: "OpenCode",
-    detectName: "OpenCode",
-    normalCommand: "opencode",
-    elevatedCommand: "OPENCODE_PERMISSION=allow opencode",
-  },
+  { id: "codex", name: "Codex", detectName: "Codex CLI" },
+  { id: "claude", name: "Claude", detectName: "Claude CLI" },
+  { id: "gemini", name: "Gemini", detectName: "Gemini CLI" },
+  { id: "opencode", name: "OpenCode", detectName: "OpenCode" },
 ];
 
 interface DashboardProps {
@@ -62,7 +39,7 @@ interface DashboardProps {
   onInstall: (toolName?: string) => void;
   onDeleteChannel: (id: string) => void;
   onOpenKeyManager: () => void;
-  onLaunch: (tool: AiToolId, mode: LaunchMode) => void;
+  onLaunch: (tool: AiToolId, modeId: string, cwd: string | null) => void;
   onRefresh: () => void;
   onRefreshBalance: () => void;
   onRecharge: () => void;
@@ -101,7 +78,11 @@ function Dashboard({
   onLogout,
 }: DashboardProps) {
   const [selectedTool, setSelectedTool] = useState<AiToolDefinition | null>(null);
-  const [dangerTool, setDangerTool] = useState<AiToolDefinition | null>(null);
+  const [pendingLaunch, setPendingLaunch] = useState<{
+    tool: AiToolDefinition;
+    modeId: string;
+    cwd: string | null;
+  } | null>(null);
   const [editingChannel, setEditingChannel] = useState<ChannelConfig | null>(null);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [deleteChannel, setDeleteChannel] = useState<ChannelConfig | null>(null);
@@ -289,12 +270,12 @@ function Dashboard({
           channel={currentChannel}
           keySelections={keySelections}
           onCancel={() => setSelectedTool(null)}
-          onLaunch={(mode) => {
-            if (mode === "elevated") {
-              setDangerTool(selectedTool);
+          onPick={(mode, cwd) => {
+            if (mode.dangerLevel === "dangerous") {
+              setPendingLaunch({ tool: selectedTool, modeId: mode.id, cwd });
               return;
             }
-            onLaunch(selectedTool.id, mode);
+            onLaunch(selectedTool.id, mode.id, cwd);
             setSelectedTool(null);
           }}
           onSelectToolKey={onSelectToolKey}
@@ -302,15 +283,16 @@ function Dashboard({
         />
       )}
 
-      {dangerTool && (
+      {pendingLaunch && (
         <DangerConfirmDialog
-          onCancel={() => setDangerTool(null)}
+          modeId={pendingLaunch.modeId}
+          onCancel={() => setPendingLaunch(null)}
           onConfirm={() => {
-            onLaunch(dangerTool.id, "elevated");
-            setDangerTool(null);
+            onLaunch(pendingLaunch.tool.id, pendingLaunch.modeId, pendingLaunch.cwd);
+            setPendingLaunch(null);
             setSelectedTool(null);
           }}
-          tool={dangerTool}
+          tool={pendingLaunch.tool}
         />
       )}
 
@@ -372,7 +354,7 @@ function LaunchDialog({
   keySelections,
   onSelectToolKey,
   onCancel,
-  onLaunch,
+  onPick,
 }: {
   selectedTool: AiToolDefinition;
   channel: ChannelConfig;
@@ -380,7 +362,7 @@ function LaunchDialog({
   keySelections: ToolKeySelections;
   onSelectToolKey: (tool: AiToolId, keyId: number) => void;
   onCancel: () => void;
-  onLaunch: (mode: LaunchMode) => void;
+  onPick: (mode: LaunchModeDef, cwd: string | null) => void;
 }) {
   const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
   const matchingKeys = keysForTool(apiKeys, selectedTool.id);
@@ -388,10 +370,27 @@ function LaunchDialog({
   const config = channel.toolConfigs[selectedTool.id];
   const canLaunch = channel.isDefault ? Boolean(selectedKey) : Boolean(config?.baseUrl && config?.apiKey);
 
+  const [recentCwds, setRecentCwds] = useState<string[]>([]);
+  const [cwdInput, setCwdInput] = useState("");
+
+  useEffect(() => {
+    const list = loadRecentCwds();
+    setRecentCwds(list);
+    setCwdInput(list[0] ?? "");
+  }, []);
+
+  const modes = useMemo(() => getModes(selectedTool.id), [selectedTool.id]);
+
+  const handlePick = (mode: LaunchModeDef) => {
+    if (!canLaunch) return;
+    const cwd = cwdInput.trim() || null;
+    onPick(mode, cwd);
+  };
+
   return (
     <div className="fixed inset-0 z-20 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
       <div
-        className="w-[460px] max-w-[90vw] max-h-[85vh] overflow-y-auto rounded-lg border p-5"
+        className="w-[520px] max-w-[90vw] max-h-[85vh] overflow-y-auto rounded-lg border p-5"
         ref={dialogRef}
         role="dialog"
         aria-modal="true"
@@ -401,7 +400,7 @@ function LaunchDialog({
           {formatText("dashboard.launchTitle", { toolName: selectedTool.name })}
         </h2>
 
-        <div className="mt-4 grid gap-3">
+        <div className="mt-4 grid gap-4">
           {channel.isDefault ? (
             <label className="grid gap-1.5 text-sm" style={{ color: theme.textSecondary }}>
               {t("dashboard.zmKey")}
@@ -426,8 +425,48 @@ function LaunchDialog({
             </div>
           )}
 
-          <LaunchButton command={selectedTool.normalCommand} disabled={!canLaunch} label={t("dashboard.normalMode")} onClick={() => onLaunch("normal")} />
-          <LaunchButton command={selectedTool.elevatedCommand} disabled={!canLaunch} label={t("dashboard.elevatedMode")} onClick={() => onLaunch("elevated")} warning />
+          <section aria-label={t("dashboard.workingDirTitle")} className="grid gap-1.5">
+            <h3 className="text-sm font-semibold" style={{ color: theme.textPrimary }}>
+              {t("dashboard.workingDirTitle")}
+            </h3>
+            <select
+              aria-label={t("dashboard.workingDirTitle")}
+              className="rounded-lg border px-3 py-2 text-sm"
+              onChange={(event) => setCwdInput(event.target.value)}
+              style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+              value={recentCwds.includes(cwdInput) ? cwdInput : ""}
+            >
+              <option value="">{t("dashboard.cwd.useGuiCwd")}</option>
+              {recentCwds.map((path) => (
+                <option key={path} value={path}>{path}</option>
+              ))}
+            </select>
+            <input
+              className="rounded-lg border px-3 py-2 text-sm"
+              onChange={(event) => setCwdInput(event.target.value)}
+              placeholder={t("dashboard.cwd.placeholder")}
+              style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+              type="text"
+              value={cwdInput}
+            />
+          </section>
+
+          <section aria-label={t("dashboard.launchModeTitle")} className="grid gap-2">
+            <h3 className="text-sm font-semibold" style={{ color: theme.textPrimary }}>
+              {t("dashboard.launchModeTitle")}
+            </h3>
+            {modes.map((mode) => (
+              <LaunchButton
+                command={previewCommand(mode)}
+                disabled={!canLaunch}
+                key={mode.id}
+                label={t(mode.labelKey)}
+                onClick={() => handlePick(mode)}
+                warning={mode.dangerLevel !== "safe"}
+              />
+            ))}
+          </section>
+
           <p className="text-[11px] leading-relaxed" style={{ color: theme.textMuted }}>
             {t("dashboard.envNotice")}
           </p>
@@ -444,15 +483,19 @@ function LaunchDialog({
 
 function DangerConfirmDialog({
   tool,
+  modeId,
   onConfirm,
   onCancel,
 }: {
   tool: AiToolDefinition;
+  modeId: string;
   onConfirm: () => void;
   onCancel: () => void;
 }) {
   const [accepted, setAccepted] = useState(false);
   const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
+  const mode = findMode(tool.id, modeId);
+  const command = mode ? previewCommand(mode) : "";
 
   return (
     <div className="fixed inset-0 z-30 flex items-center justify-center bg-black/45 px-4" onMouseDown={closeOnBackdropMouseDown(onCancel)}>
@@ -476,7 +519,7 @@ function DangerConfirmDialog({
               {formatText("dashboard.dangerTitle", { toolName: tool.name })}
             </h2>
             <p className="mt-2 text-sm leading-relaxed" style={{ color: theme.textSecondary }}>
-              {t("dashboard.dangerCommandPrefix")} <span className="break-all font-mono text-xs">{tool.elevatedCommand}</span>。{dangerDescription(tool.id)}
+              {t("dashboard.dangerCommandPrefix")} <span className="break-all font-mono text-xs">{command}</span>。{dangerDescription(tool.id)}
             </p>
           </div>
         </div>

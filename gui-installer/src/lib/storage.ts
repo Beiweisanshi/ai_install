@@ -9,6 +9,8 @@ const CHANNELS_KEY = "zm_tools_channels";
 const CURRENT_CHANNEL_KEY = "zm_tools_current_channel";
 const DETECT_CACHE_KEY = "zm_tools_detect_cache";
 const PREFERENCES_KEY = "zm_tools_preferences";
+const RECENT_CWDS_KEY = "zm_tools_recent_cwds";
+const RECENT_CWDS_MAX = 5;
 
 export interface Preferences {
   darkMode: boolean;
@@ -119,6 +121,39 @@ export function loadPreferences(): Preferences {
 
 export function savePreferences(preferences: Preferences) {
   localStorage.setItem(PREFERENCES_KEY, JSON.stringify(preferences));
+}
+
+export function loadRecentCwds(): string[] {
+  const raw = readJson<unknown>(RECENT_CWDS_KEY);
+  if (!Array.isArray(raw)) return [];
+  return raw.filter((item): item is string => typeof item === "string" && item.length > 0)
+    .slice(0, RECENT_CWDS_MAX);
+}
+
+export function saveRecentCwds(list: string[]) {
+  localStorage.setItem(RECENT_CWDS_KEY, JSON.stringify(list.slice(0, RECENT_CWDS_MAX)));
+}
+
+// MRU-push the given path to the front of the recent-cwds list.
+// - Empty / nullish input is ignored (returns the existing list unchanged).
+// - Comparison is case-insensitive (Windows paths) but we keep the original
+//   casing of the FIRST occurrence — i.e. an existing entry is moved to the
+//   front, the incoming path's casing is not used to overwrite it.
+// - Capped at RECENT_CWDS_MAX entries.
+export function pushRecentCwd(path: string | null | undefined): string[] {
+  const trimmed = typeof path === "string" ? path.trim() : "";
+  if (!trimmed) return loadRecentCwds();
+
+  const current = loadRecentCwds();
+  const lower = trimmed.toLowerCase();
+  const existingIndex = current.findIndex((entry) => entry.toLowerCase() === lower);
+  const head = existingIndex >= 0 ? current[existingIndex] : trimmed;
+  const rest = existingIndex >= 0
+    ? [...current.slice(0, existingIndex), ...current.slice(existingIndex + 1)]
+    : current;
+  const next = [head, ...rest].slice(0, RECENT_CWDS_MAX);
+  saveRecentCwds(next);
+  return next;
 }
 
 function readJson<T>(key: string): T | null {

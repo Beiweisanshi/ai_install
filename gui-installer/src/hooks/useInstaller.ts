@@ -11,7 +11,6 @@ import type {
   PrecheckResult,
   ProgressEvent,
   RunningProc,
-  LaunchMode,
 } from "../types";
 import { formatText } from "../lib/strings";
 import { loadDetectCache, saveDetectCache } from "../lib/storage";
@@ -203,9 +202,9 @@ export function useInstaller() {
     await runInstall(toolNames);
   }, [runInstall]);
 
-  const launchTool = useCallback(async (tool: string, mode: LaunchMode) => {
+  const launchTool = useCallback(async (tool: string, modeId: string, cwd: string | null) => {
     try {
-      await invoke("launch_ai_tool", { tool, mode });
+      await invoke("launch_ai_tool", { tool, mode: modeId, cwd });
     } catch (e) {
       setError(String(e));
     }
