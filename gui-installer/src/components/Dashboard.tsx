@@ -389,6 +389,7 @@ function LaunchDialog({
 
   const [recentCwds, setRecentCwds] = useState<string[]>([]);
   const [cwdInput, setCwdInput] = useState("");
+  const [browseHovered, setBrowseHovered] = useState(false);
 
   const modes = useMemo(() => getModes(selectedTool.id), [selectedTool.id]);
   const [selectedModeId, setSelectedModeId] = useState<string>(() => modes[0].id);
@@ -494,7 +495,14 @@ function LaunchDialog({
               <button
                 className="btn btn-secondary whitespace-nowrap rounded-lg px-3 py-2 text-sm"
                 onClick={() => void handleBrowseDir()}
-                style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}
+                onMouseEnter={() => setBrowseHovered(true)}
+                onMouseLeave={() => setBrowseHovered(false)}
+                style={{
+                  background: browseHovered ? theme.bgHover : theme.bgSecondary,
+                  borderColor: theme.border,
+                  color: theme.textPrimary,
+                  transition: "background-color 120ms ease",
+                }}
                 type="button"
               >
                 {t("dashboard.cwd.browse")}
