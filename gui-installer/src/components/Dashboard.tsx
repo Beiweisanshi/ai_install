@@ -501,7 +501,6 @@ function LaunchDialog({
                   background: browseHovered ? theme.bgHover : theme.bgSecondary,
                   borderColor: theme.border,
                   color: theme.textPrimary,
-                  transition: "background-color 120ms ease",
                 }}
                 type="button"
               >
