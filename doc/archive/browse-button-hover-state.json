@@ -1,0 +1,53 @@
+{
+  "slug": "browse-button-hover",
+  "level": "S",
+  "stage": "done",
+  "status": "completed",
+  "created_at": "2026-05-07T03:55:00Z",
+  "repo": "ai_install",
+  "branch": "main",
+  "model": "claude-sonnet-4-6",
+  "workflow_version": "8.0",
+  "task": {
+    "title": "LaunchDialog 的「选择目录」按钮增加 hover 灰色背景",
+    "description": "当前 Dashboard.tsx:494-501 的「选择目录」按钮 inline style 直接写死 background: theme.bgSecondary，鼠标悬停无视觉反馈（btn-secondary class 的 :hover 被 inline style 覆盖）。本次：用 useState 跟踪 hover 状态，mouseEnter 时背景切到 theme.bgHover、mouseLeave 还原；其他属性（border/cursor/text）不变。",
+    "acceptance_criteria": [
+      "鼠标悬停在「选择目录」按钮上，背景变为 theme.bgHover（灰色）",
+      "鼠标移开后背景还原为 theme.bgSecondary",
+      "不影响 hover/active 之外的样式（边框、文字色、圆角）",
+      "tsc + vitest 不退化"
+    ]
+  },
+  "plan": null,
+  "result": {
+    "summary": "在 LaunchDialog 内的「选择目录」按钮上添加了 hover 灰色背景反馈：新增 browseHovered useState，绑定 onMouseEnter/onMouseLeave，inline style 在 hover 时切换 background 到 theme.bgHover，并加 120ms 背景过渡动画。其他属性（边框、文字色、圆角）保持不变；其他按钮（启动、取消等）未受影响。",
+    "diff_files": ["gui-installer/src/components/Dashboard.tsx"],
+    "staged_patch": "diff --git a/gui-installer/src/components/Dashboard.tsx b/gui-installer/src/components/Dashboard.tsx\nindex 45fcc4d..ab39a0e 100644\n--- a/gui-installer/src/components/Dashboard.tsx\n+++ b/gui-installer/src/components/Dashboard.tsx\n@@ -389,6 +389,7 @@ function LaunchDialog({\n \n   const [recentCwds, setRecentCwds] = useState<string[]>([]);\n   const [cwdInput, setCwdInput] = useState(\"\");\n+  const [browseHovered, setBrowseHovered] = useState(false);\n \n   const modes = useMemo(() => getModes(selectedTool.id), [selectedTool.id]);\n   const [selectedModeId, setSelectedModeId] = useState<string>(() => modes[0].id);\n@@ -494,7 +495,14 @@ function LaunchDialog({\n               <button\n                 className=\"btn btn-secondary whitespace-nowrap rounded-lg px-3 py-2 text-sm\"\n                 onClick={() => void handleBrowseDir()}\n-                style={{ background: theme.bgSecondary, borderColor: theme.border, color: theme.textPrimary }}\n+                onMouseEnter={() => setBrowseHovered(true)}\n+                onMouseLeave={() => setBrowseHovered(false)}\n+                style={{\n+                  background: browseHovered ? theme.bgHover : theme.bgSecondary,\n+                  borderColor: theme.border,\n+                  color: theme.textPrimary,\n+                  transition: \"background-color 120ms ease\",\n+                }}\n                 type=\"button\"\n               >\n                 {t(\"dashboard.cwd.browse\")}",
+    "test_result": {
+      "frontend": { "passed": 58, "failed": 0 },
+      "typecheck": { "passed": true }
+    }
+  },
+  "verdict": {
+    "overall": "pass",
+    "blockers": [],
+    "concerns": [
+      "inline `transition: background-color 120ms ease` 会覆盖 .btn class 上的完整 transition（background-color/color/border-color/transform）。当前 .btn-secondary:hover 只切换 background，无影响；但若日后新增 :hover 改 color/border-color/transform，那些过渡将不再平滑。非阻塞，可作为后续优化。"
+    ],
+    "codex_correctness": {
+      "degraded": false,
+      "summary": "Codex 判定无致命问题：(1) modal mount/unmount 模型下 browseHovered 不会跨开关泄漏；(2) inline transition 不会触发初次渲染动画（无前值可插值）；(3) inline background 仅覆盖 .btn-secondary 的 hover background，不影响 box-shadow（btn-secondary:hover 本就不改 box-shadow）。唯一改进建议：inline transition 收窄了 class 上的多属性过渡列表，属前向兼容性的非阻塞 nit。",
+      "score": "🟡 凑合"
+    },
+    "tests": {
+      "frontend": { "passed": 14, "failed": 0 }
+    },
+    "tsc": "pass"
+  },
+  "subtasks": null,
+  "commit_sha": "b4f593a88ef281d7a9c4760ca5cf0f532d1c2efc",
+  "concerns": [],
+  "metrics": {"clarify_s": 60, "plan_s": 0, "implement_s": null, "review_s": null},
+  "fail_count_by_stage": {"clarify": 0, "plan": 0, "implement": 0, "review": 0},
+  "termination_reason": null
+}
