@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 
@@ -68,11 +68,10 @@ function App() {
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null);
   const [preferences, setPreferences] = useState(() => loadPreferences());
   const [ccSwitchConflict, setCcSwitchConflict] = useState<{
-    pids: number[];
-    exePaths: string[];
+    procs: { pid: number; name: string }[];
     pendingChannel: ChannelConfig;
+    closing: boolean;
   } | null>(null);
-  const [ccSwitchClosing, setCcSwitchClosing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -136,26 +135,30 @@ function App() {
     setCurrentChannelId("default");
   }, [currentChannelId, effectiveChannels]);
 
-  // Listen for live-config-changed events from the Rust fs watcher. Fires
-  // whenever ~/.claude/settings.json, ~/.codex/auth.json|config.toml, or
-  // ~/.gemini/.env is touched by an external writer (cc-switch, hand edits,
-  // etc.). The event is suppressed for ~1.5s after our own writes.
+  // Subscribe to fs-watcher emissions; suppressed for ~1.5s after our own writes.
+  // Use a ref so editing channels (renaming, key changes, etc.) doesn't tear
+  // down and re-create the listener.
+  const channelsRef = useRef(effectiveChannels);
+  channelsRef.current = effectiveChannels;
+  const currentChannelIdRef = useRef(currentChannelId);
+  currentChannelIdRef.current = currentChannelId;
+
   useEffect(() => {
     let unlistenFn: (() => void) | null = null;
     let cancelled = false;
 
     const apply = (settings: ActiveSettings | null) => {
-      const match = matchActiveSettingsToChannel(settings, effectiveChannels);
+      const match = matchActiveSettingsToChannel(settings, channelsRef.current);
       if (match.channelId) {
-        setCurrentChannelId(match.channelId);
-        saveCurrentChannelId(match.channelId);
+        if (match.channelId !== currentChannelIdRef.current) {
+          setCurrentChannelId(match.channelId);
+          saveCurrentChannelId(match.channelId);
+        }
       } else if (match.isExternal) {
         setToast({ kind: "err", text: t("channel.externalDetected") });
       }
     };
 
-    // Immediate read once, so cc-switch changes that happened before we
-    // subscribed don't get lost.
     void readActiveSettings()
       .then((settings) => { if (!cancelled) apply(settings); })
       .catch(() => {});
@@ -175,31 +178,7 @@ function App() {
       cancelled = true;
       if (unlistenFn) unlistenFn();
     };
-  }, [effectiveChannels]);
-
-  // Drift check: if the on-disk Claude settings diverged from the active
-  // custom channel (e.g. user edited settings.json by hand or another tool
-  // wrote it), prompt to re-apply.
-  useEffect(() => {
-    if (!session || !currentChannel || currentChannel.isDefault) return;
-    let cancelled = false;
-    void readActiveSettings()
-      .then((settings) => {
-        if (cancelled || !settings) return;
-        const claude = currentChannel.toolConfigs.claude;
-        if (!claude.baseUrl || !claude.apiKey) return;
-        const diskUrl = settings.claudeBaseUrl ?? "";
-        const diskKey = settings.claudeAuthToken ?? settings.claudeApiKey ?? "";
-        if (diskUrl !== claude.baseUrl || diskKey !== claude.apiKey) {
-          setToast({ kind: "err", text: t("channel.driftDetected") });
-        }
-      })
-      .catch(() => {});
-    return () => {
-      cancelled = true;
-    };
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [session, currentChannel?.id]);
+  }, []);
 
   const gatedPhase: AppPhase = installer.phase === "dashboard"
     ? sessionLoading
@@ -230,14 +209,16 @@ function App() {
         const result = await applyActiveChannelWithPrecheck(channel, force);
         if (result.status === "ccSwitchRunning") {
           setCcSwitchConflict({
-            pids: result.pids,
-            exePaths: result.exePaths,
+            procs: result.procs,
             pendingChannel: channel,
+            closing: false,
           });
           return false;
         }
-        setCurrentChannelId(channel.id);
-        saveCurrentChannelId(channel.id);
+        if (channel.id !== currentChannelIdRef.current) {
+          setCurrentChannelId(channel.id);
+          saveCurrentChannelId(channel.id);
+        }
         setToast({ kind: "ok", text: t("channel.applied") });
         return true;
       } catch (e) {
@@ -261,32 +242,34 @@ function App() {
     await tryActivateChannel(target);
   };
 
-  const handleCcSwitchCloseAndContinue = useCallback(async () => {
-    if (!ccSwitchConflict) return;
-    const pending = ccSwitchConflict.pendingChannel;
-    setCcSwitchClosing(true);
-    try {
-      await closeCcSwitch(false);
-    } catch (e) {
-      setToast({ kind: "err", text: formatText("channel.ccSwitchCloseFailed", { detail: normalizeError(e) }) });
-      setCcSwitchClosing(false);
-      return;
-    }
-    setCcSwitchClosing(false);
-    setCcSwitchConflict(null);
-    await tryActivateChannel(pending);
-  }, [ccSwitchConflict, tryActivateChannel]);
-
-  const handleCcSwitchForceWrite = useCallback(async () => {
-    if (!ccSwitchConflict) return;
-    const pending = ccSwitchConflict.pendingChannel;
-    setCcSwitchConflict(null);
-    await tryActivateChannel(pending, true);
-  }, [ccSwitchConflict, tryActivateChannel]);
-
-  const handleCcSwitchCancel = useCallback(() => {
-    setCcSwitchConflict(null);
-  }, []);
+  const handleCcSwitchDecision = useCallback(
+    async (decision: "close" | "force" | "cancel") => {
+      const conflict = ccSwitchConflict;
+      if (!conflict) return;
+      if (decision === "cancel") {
+        setCcSwitchConflict(null);
+        return;
+      }
+      if (decision === "force") {
+        setCcSwitchConflict(null);
+        await tryActivateChannel(conflict.pendingChannel, true);
+        return;
+      }
+      // decision === "close"
+      const pids = conflict.procs.map((p) => p.pid);
+      setCcSwitchConflict({ ...conflict, closing: true });
+      try {
+        await closeCcSwitch(pids, false);
+      } catch (e) {
+        setToast({ kind: "err", text: formatText("channel.ccSwitchCloseFailed", { detail: normalizeError(e) }) });
+        setCcSwitchConflict({ ...conflict, closing: false });
+        return;
+      }
+      setCcSwitchConflict(null);
+      await tryActivateChannel(conflict.pendingChannel);
+    },
+    [ccSwitchConflict, tryActivateChannel],
+  );
 
   const handleDeleteChannel = (id: string) => {
     const channel = channels.find((item) => item.id === id);
@@ -480,12 +463,9 @@ function App() {
 
       {ccSwitchConflict && (
         <CcSwitchConflictDialog
-          pids={ccSwitchConflict.pids}
-          exePaths={ccSwitchConflict.exePaths}
-          closing={ccSwitchClosing}
-          onCloseAndContinue={handleCcSwitchCloseAndContinue}
-          onForceWrite={handleCcSwitchForceWrite}
-          onCancel={handleCcSwitchCancel}
+          procs={ccSwitchConflict.procs}
+          closing={ccSwitchConflict.closing}
+          onDecision={handleCcSwitchDecision}
         />
       )}
     </Layout>

@@ -6,45 +6,35 @@ use serde::Serialize;
 #[cfg(target_os = "windows")]
 use crate::installer::windows::hidden_command;
 
-/// Image / executable names to look for. cc-switch v3 ships as a Tauri app
-/// whose Windows binary is `cc-switch.exe` and whose macOS bundle exposes
-/// `cc-switch` (and historically `Cc-switch`) inside `*.app/Contents/MacOS/`.
-const IMAGE_NAMES: &[&str] = &["cc-switch.exe", "cc-switch", "Cc-switch"];
+#[cfg(target_os = "windows")]
+const WIN_IMAGE_NAMES: &[&str] = &["cc-switch.exe"];
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+const UNIX_PATTERN: &str = "cc-switch";
+const GRACE_MS: u64 = 1500;
+const POLL_MS: u64 = 250;
 
-#[derive(Debug, Default, Clone, Serialize)]
+#[derive(Debug, Clone, Serialize)]
 #[serde(rename_all = "camelCase")]
-pub struct CcSwitchProcInfo {
-    pub pids: Vec<u32>,
-    pub exe_paths: Vec<String>,
+pub struct CcSwitchProc {
+    pub pid: u32,
+    pub name: String,
 }
 
-pub fn detect() -> CcSwitchProcInfo {
+pub fn detect() -> Vec<CcSwitchProc> {
     #[cfg(target_os = "windows")]
-    {
-        detect_windows()
-    }
-
+    { detect_windows() }
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        detect_unix()
-    }
-
+    { detect_unix() }
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        CcSwitchProcInfo::default()
-    }
+    { Vec::new() }
 }
 
 #[cfg(target_os = "windows")]
-fn detect_windows() -> CcSwitchProcInfo {
-    let mut pids: Vec<u32> = Vec::new();
-    let mut exe_paths: Vec<String> = Vec::new();
+fn detect_windows() -> Vec<CcSwitchProc> {
+    let mut out: Vec<CcSwitchProc> = Vec::new();
     let mut seen: HashSet<u32> = HashSet::new();
 
-    for image in IMAGE_NAMES {
-        if !image.ends_with(".exe") {
-            continue;
-        }
+    for image in WIN_IMAGE_NAMES {
         let output = hidden_command("tasklist")
             .arg("/FI")
             .arg(format!("IMAGENAME eq {image}"))
@@ -70,65 +60,48 @@ fn detect_windows() -> CcSwitchProcInfo {
             let pid_str = cols.remove(1);
             let Ok(pid) = pid_str.parse::<u32>() else { continue };
             if seen.insert(pid) {
-                pids.push(pid);
-                exe_paths.push((*image).to_string());
+                out.push(CcSwitchProc { pid, name: (*image).to_string() });
             }
         }
     }
 
-    CcSwitchProcInfo { pids, exe_paths }
+    out
 }
 
 #[cfg(target_os = "windows")]
 fn csv_unquote(line: &str) -> Vec<String> {
-    // tasklist CSV uses double-quoted fields separated by commas. Values do
-    // not contain commas (image names, decimal pids, etc.), so a simple split
-    // on `","` after stripping the leading/trailing quote is enough.
     let trimmed = line.trim_matches('"');
     trimmed.split("\",\"").map(|s| s.to_string()).collect()
 }
 
 #[cfg(any(target_os = "macos", target_os = "linux"))]
-fn detect_unix() -> CcSwitchProcInfo {
+fn detect_unix() -> Vec<CcSwitchProc> {
     use std::process::Command;
-    let mut pids: Vec<u32> = Vec::new();
-    let mut exe_paths: Vec<String> = Vec::new();
-    let mut seen: HashSet<u32> = HashSet::new();
 
-    // `pgrep -if pattern` — case-insensitive, full-cmdline match. We use the
-    // shortest unique fragment so both bare binary and .app bundle paths are
-    // captured.
-    let output = Command::new("pgrep").args(["-if", "cc-switch"]).output();
-    let Ok(output) = output else {
-        return CcSwitchProcInfo::default();
-    };
+    // `pgrep -lif <pat>`: case-insensitive, full-cmdline match, prints "pid name"
+    // per line. One spawn covers both pid discovery and name lookup.
+    let output = Command::new("pgrep").args(["-lif", UNIX_PATTERN]).output();
+    let Ok(output) = output else { return Vec::new() };
     if !output.status.success() {
-        return CcSwitchProcInfo::default();
+        return Vec::new();
     }
     let stdout = String::from_utf8_lossy(&output.stdout);
+    let mut seen: HashSet<u32> = HashSet::new();
+    let mut out: Vec<CcSwitchProc> = Vec::new();
     for line in stdout.lines() {
-        let Ok(pid) = line.trim().parse::<u32>() else { continue };
+        let line = line.trim();
+        let (pid_str, name_part) = match line.split_once(char::is_whitespace) {
+            Some((p, n)) => (p, n.trim()),
+            None => (line, ""),
+        };
+        let Ok(pid) = pid_str.parse::<u32>() else { continue };
         if !seen.insert(pid) {
             continue;
         }
-        // ps -o comm= for the image name; ignore failures.
-        let exe = Command::new("ps")
-            .args(["-o", "comm=", "-p", &pid.to_string()])
-            .output()
-            .ok()
-            .and_then(|o| {
-                if o.status.success() {
-                    Some(String::from_utf8_lossy(&o.stdout).trim().to_string())
-                } else {
-                    None
-                }
-            })
-            .filter(|s| !s.is_empty())
-            .unwrap_or_else(|| "cc-switch".to_string());
-        pids.push(pid);
-        exe_paths.push(exe);
+        let name = if name_part.is_empty() { UNIX_PATTERN.to_string() } else { name_part.to_string() };
+        out.push(CcSwitchProc { pid, name });
     }
-    CcSwitchProcInfo { pids, exe_paths }
+    out
 }
 
 pub fn graceful_close(pids: &[u32]) -> usize {
@@ -152,27 +125,10 @@ pub fn graceful_close(pids: &[u32]) -> usize {
     }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        use std::process::Command;
-        let mut count = 0;
-        for pid in pids {
-            let ok = Command::new("kill")
-                .args(["-TERM", &pid.to_string()])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if ok {
-                count += 1;
-            }
-        }
-        count
-    }
+    { signal_pids_unix(pids, "-TERM") }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        let _ = pids;
-        0
-    }
+    { let _ = pids; 0 }
 }
 
 pub fn force_kill(pids: &[u32]) -> usize {
@@ -181,62 +137,56 @@ pub fn force_kill(pids: &[u32]) -> usize {
     }
 
     #[cfg(target_os = "windows")]
-    {
-        crate::installer::windows::kill_processes_by_pid(pids)
-    }
+    { crate::installer::windows::kill_processes_by_pid(pids) }
 
     #[cfg(any(target_os = "macos", target_os = "linux"))]
-    {
-        use std::process::Command;
-        let mut count = 0;
-        for pid in pids {
-            let ok = Command::new("kill")
-                .args(["-KILL", &pid.to_string()])
-                .status()
-                .map(|s| s.success())
-                .unwrap_or(false);
-            if ok {
-                count += 1;
-            }
-        }
-        count
-    }
+    { signal_pids_unix(pids, "-KILL") }
 
     #[cfg(not(any(target_os = "windows", target_os = "macos", target_os = "linux")))]
-    {
-        let _ = pids;
-        0
-    }
+    { let _ = pids; 0 }
+}
+
+#[cfg(any(target_os = "macos", target_os = "linux"))]
+fn signal_pids_unix(pids: &[u32], signal: &str) -> usize {
+    use std::process::Command;
+    pids.iter()
+        .filter(|pid| {
+            Command::new("kill")
+                .args([signal, &pid.to_string()])
+                .status()
+                .map(|s| s.success())
+                .unwrap_or(false)
+        })
+        .count()
 }
 
 /// Try to close gracefully; if any of the provided PIDs is still alive after
-/// `grace_ms`, escalate to a force kill on the survivors. Returns the number
+/// `GRACE_MS`, escalate to a force kill on the survivors. Returns the number
 /// of PIDs no longer alive at the end.
-pub fn close_with_grace_period(pids: &[u32], grace_ms: u64) -> usize {
+pub fn close_with_grace_period(pids: &[u32]) -> usize {
     if pids.is_empty() {
         return 0;
     }
     graceful_close(pids);
 
-    let deadline = Instant::now() + Duration::from_millis(grace_ms);
-    let poll = Duration::from_millis(250);
+    let deadline = Instant::now() + Duration::from_millis(GRACE_MS);
+    let poll = Duration::from_millis(POLL_MS);
     while Instant::now() < deadline {
-        let alive = detect();
-        let alive_set: HashSet<u32> = alive.pids.iter().copied().collect();
-        let still_here: Vec<u32> = pids.iter().copied().filter(|p| alive_set.contains(p)).collect();
-        if still_here.is_empty() {
+        if survivors(pids).is_empty() {
             return pids.len();
         }
         std::thread::sleep(poll);
     }
 
-    let alive = detect();
-    let alive_set: HashSet<u32> = alive.pids.iter().copied().collect();
-    let still_here: Vec<u32> = pids.iter().copied().filter(|p| alive_set.contains(p)).collect();
+    let still_here = survivors(pids);
     if !still_here.is_empty() {
         force_kill(&still_here);
     }
-    let alive = detect();
-    let alive_set: HashSet<u32> = alive.pids.iter().copied().collect();
-    pids.iter().filter(|p| !alive_set.contains(p)).count()
+    pids.len() - survivors(pids).len()
 }
+
+fn survivors(pids: &[u32]) -> Vec<u32> {
+    let alive: HashSet<u32> = detect().into_iter().map(|p| p.pid).collect();
+    pids.iter().copied().filter(|p| alive.contains(p)).collect()
+}
+

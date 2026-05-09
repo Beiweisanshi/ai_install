@@ -347,20 +347,34 @@ fn home() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "could not determine home directory".to_string())
 }
 
-pub(crate) fn claude_settings_path() -> Result<PathBuf, String> {
+fn claude_settings_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".claude").join("settings.json"))
 }
 
-pub(crate) fn codex_auth_path() -> Result<PathBuf, String> {
+fn codex_auth_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".codex").join("auth.json"))
 }
 
-pub(crate) fn codex_config_path() -> Result<PathBuf, String> {
+fn codex_config_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".codex").join("config.toml"))
 }
 
-pub(crate) fn gemini_env_path() -> Result<PathBuf, String> {
+fn gemini_env_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".gemini").join(".env"))
+}
+
+/// All live config files this app may read or write. Used by the live
+/// watcher to know what to monitor.
+pub fn live_paths() -> Vec<PathBuf> {
+    [
+        claude_settings_path(),
+        codex_auth_path(),
+        codex_config_path(),
+        gemini_env_path(),
+    ]
+    .into_iter()
+    .filter_map(Result::ok)
+    .collect()
 }
 
 fn string_value(v: &Value) -> Option<String> {

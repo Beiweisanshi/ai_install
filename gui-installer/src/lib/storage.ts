@@ -93,23 +93,21 @@ export function loadChannels(): ChannelConfig[] {
   return readJson<ChannelConfig[]>(CHANNELS_KEY) ?? [];
 }
 
-// UI cache only — disk persistence happens via applyActiveChannel.
+// UI cache only — disk persistence happens via applyActiveChannelWithPrecheck.
 export function saveChannels(channels: ChannelConfig[]) {
   localStorage.setItem(CHANNELS_KEY, JSON.stringify(channels));
 }
 
-export async function applyActiveChannel(channel: ChannelConfig): Promise<void> {
-  if (!isTauriRuntime()) return;
-  await invoke("apply_active_channel", { channel });
+export interface CcSwitchProc {
+  pid: number;
+  name: string;
 }
 
 export type ApplyChannelOutcome =
   | { status: "applied" }
-  | { status: "ccSwitchRunning"; pids: number[]; exePaths: string[] };
+  | { status: "ccSwitchRunning"; procs: CcSwitchProc[] };
 
-// Apply with precheck: returns "ccSwitchRunning" without touching live files
-// when cc-switch is detected (unless force=true). The frontend prompts the
-// user, optionally calls closeCcSwitch, and re-invokes this function.
+// Returns ccSwitchRunning without writing live files when force=false.
 export async function applyActiveChannelWithPrecheck(
   channel: ChannelConfig,
   force = false,
@@ -118,14 +116,9 @@ export async function applyActiveChannelWithPrecheck(
   return invoke<ApplyChannelOutcome>("apply_active_channel_with_precheck", { channel, force });
 }
 
-export async function detectCcSwitch(): Promise<{ pids: number[]; exePaths: string[] }> {
-  if (!isTauriRuntime()) return { pids: [], exePaths: [] };
-  return invoke<{ pids: number[]; exePaths: string[] }>("cc_switch_detect");
-}
-
-export async function closeCcSwitch(force: boolean): Promise<number> {
+export async function closeCcSwitch(pids: number[], force: boolean): Promise<number> {
   if (!isTauriRuntime()) return 0;
-  return invoke<number>("cc_switch_close", { force });
+  return invoke<number>("cc_switch_close", { pids, force });
 }
 
 export async function readActiveSettings(): Promise<ActiveSettings | null> {

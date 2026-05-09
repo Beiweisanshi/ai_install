@@ -81,7 +81,6 @@ pub fn run() {
             commands::detect_tools,
             commands::install_tools,
             commands::save_config,
-            commands::apply_active_channel,
             commands::apply_active_channel_with_precheck,
             commands::cc_switch_detect,
             commands::cc_switch_close,

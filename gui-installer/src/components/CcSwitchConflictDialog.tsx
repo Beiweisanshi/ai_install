@@ -4,30 +4,19 @@ import { closeOnBackdropMouseDown, useDialogKeyboard } from "../hooks/useDialogK
 import { t } from "../lib/strings";
 import { theme } from "../styles/theme";
 
+export type CcSwitchDecision = "close" | "force" | "cancel";
+
 export interface CcSwitchConflictDialogProps {
-  pids: number[];
-  exePaths: string[];
+  procs: { pid: number; name: string }[];
   closing: boolean;
-  onCloseAndContinue: () => void;
-  onForceWrite: () => void;
-  onCancel: () => void;
+  onDecision: (decision: CcSwitchDecision) => void;
 }
 
-function CcSwitchConflictDialog({
-  pids,
-  exePaths,
-  closing,
-  onCloseAndContinue,
-  onForceWrite,
-  onCancel,
-}: CcSwitchConflictDialogProps) {
+function CcSwitchConflictDialog({ procs, closing, onDecision }: CcSwitchConflictDialogProps) {
   const [showForceConfirm, setShowForceConfirm] = useState(false);
-  const dialogRef = useDialogKeyboard<HTMLDivElement>(true, onCancel);
+  const dialogRef = useDialogKeyboard<HTMLDivElement>(true, () => onDecision("cancel"));
 
-  const pidLabel = pids.map((pid, i) => {
-    const exe = exePaths[i] ?? "";
-    return exe ? `${exe} (${pid})` : String(pid);
-  }).join(", ");
+  const procLabel = procs.map(({ pid, name }) => (name ? `${name} (${pid})` : String(pid))).join(", ");
 
   if (showForceConfirm) {
     return (
@@ -56,7 +45,7 @@ function CcSwitchConflictDialog({
             </button>
             <button
               className="btn rounded-lg px-4 py-2 text-sm font-semibold"
-              onClick={onForceWrite}
+              onClick={() => onDecision("force")}
               style={{ background: theme.warning, color: theme.textOnAccent }}
               type="button"
             >
@@ -71,7 +60,7 @@ function CcSwitchConflictDialog({
   return (
     <div
       className="fixed inset-0 z-30 flex items-center justify-center bg-black/45 px-4"
-      onMouseDown={closeOnBackdropMouseDown(onCancel)}
+      onMouseDown={closeOnBackdropMouseDown(() => onDecision("cancel"))}
     >
       <div
         className="w-[520px] max-w-[90vw] rounded-lg border p-5"
@@ -95,9 +84,9 @@ function CcSwitchConflictDialog({
             <p className="mt-2 text-sm leading-relaxed" style={{ color: theme.textSecondary }}>
               {t("channel.ccSwitchDetectedBody")}
             </p>
-            {pids.length > 0 && (
+            {procs.length > 0 && (
               <p className="mt-2 text-xs font-mono" style={{ color: theme.textSecondary }}>
-                {t("channel.ccSwitchPidsLabel")} {pidLabel}
+                {t("channel.ccSwitchPidsLabel")} {procLabel}
               </p>
             )}
           </div>
@@ -106,7 +95,7 @@ function CcSwitchConflictDialog({
         <div className="mt-5 flex flex-wrap justify-end gap-2">
           <button
             className="btn btn-text rounded-lg px-3 py-2 text-sm"
-            onClick={onCancel}
+            onClick={() => onDecision("cancel")}
             disabled={closing}
             style={{ color: theme.textSecondary }}
             type="button"
@@ -125,7 +114,7 @@ function CcSwitchConflictDialog({
           <button
             className="btn rounded-lg px-4 py-2 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
             disabled={closing}
-            onClick={onCloseAndContinue}
+            onClick={() => onDecision("close")}
             style={{ background: theme.accent, color: theme.textOnAccent }}
             type="button"
           >

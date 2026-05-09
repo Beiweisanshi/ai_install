@@ -4,7 +4,7 @@ use serde::Serialize;
 use tauri::AppHandle;
 
 use crate::backend::{BackendRequest, BackendResponse};
-use crate::cc_switch_proc::{self, CcSwitchProcInfo};
+use crate::cc_switch_proc::{self, CcSwitchProc};
 use crate::channel_config::{self, ActiveSettings, ChannelPayload};
 use crate::config;
 use crate::installer::{self, ToolInstaller};
@@ -71,23 +71,17 @@ pub async fn save_config(entries: Vec<ConfigEntry>) -> Result<(), String> {
     }
 }
 
-#[tauri::command]
-pub async fn apply_active_channel(channel: ChannelPayload) -> Result<(), String> {
-    let result = channel_config::apply_active_channel(channel);
-    if result.is_ok() {
-        live_watcher::mark_self_write();
-    }
-    result
+fn apply_and_mark(channel: ChannelPayload) -> Result<(), String> {
+    channel_config::apply_active_channel(channel)?;
+    live_watcher::mark_self_write();
+    Ok(())
 }
 
 #[derive(Debug, Serialize)]
 #[serde(tag = "status", rename_all = "camelCase")]
 pub enum ApplyChannelOutcome {
     Applied,
-    CcSwitchRunning {
-        pids: Vec<u32>,
-        exe_paths: Vec<String>,
-    },
+    CcSwitchRunning { procs: Vec<CcSwitchProc> },
 }
 
 /// Apply a channel after first checking whether cc-switch is running.
@@ -100,37 +94,39 @@ pub async fn apply_active_channel_with_precheck(
     force: bool,
 ) -> Result<ApplyChannelOutcome, String> {
     if !force {
-        let info = cc_switch_proc::detect();
-        if !info.pids.is_empty() {
-            return Ok(ApplyChannelOutcome::CcSwitchRunning {
-                pids: info.pids,
-                exe_paths: info.exe_paths,
-            });
+        let procs = cc_switch_proc::detect();
+        if !procs.is_empty() {
+            return Ok(ApplyChannelOutcome::CcSwitchRunning { procs });
         }
     }
-    channel_config::apply_active_channel(channel)?;
-    live_watcher::mark_self_write();
+    apply_and_mark(channel)?;
     Ok(ApplyChannelOutcome::Applied)
 }
 
 #[tauri::command]
-pub async fn cc_switch_detect() -> Result<CcSwitchProcInfo, String> {
+pub async fn cc_switch_detect() -> Result<Vec<CcSwitchProc>, String> {
     Ok(cc_switch_proc::detect())
 }
 
-/// Close cc-switch. When `force` is false, attempts a graceful close with a
-/// 1500ms grace period before escalating to a force kill on any survivors.
-/// Returns the number of PIDs successfully terminated.
+/// Close cc-switch processes. `pids` is the list the frontend already saw
+/// from a precheck — passing them in avoids re-detecting (and racing a
+/// freshly-spawned cc-switch). When `force` is false, attempts a graceful
+/// close with a 1500ms grace period before escalating to a force kill on
+/// any survivors. Returns the number of PIDs successfully terminated.
 #[tauri::command]
-pub async fn cc_switch_close(force: bool) -> Result<usize, String> {
-    let info = cc_switch_proc::detect();
-    if info.pids.is_empty() {
+pub async fn cc_switch_close(pids: Vec<u32>, force: bool) -> Result<usize, String> {
+    let pids = if pids.is_empty() {
+        cc_switch_proc::detect().into_iter().map(|p| p.pid).collect::<Vec<_>>()
+    } else {
+        pids
+    };
+    if pids.is_empty() {
         return Ok(0);
     }
     if force {
-        Ok(cc_switch_proc::force_kill(&info.pids))
+        Ok(cc_switch_proc::force_kill(&pids))
     } else {
-        Ok(cc_switch_proc::close_with_grace_period(&info.pids, 1500))
+        Ok(cc_switch_proc::close_with_grace_period(&pids))
     }
 }
 
