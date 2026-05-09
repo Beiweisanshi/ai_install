@@ -103,9 +103,79 @@ export async function applyActiveChannel(channel: ChannelConfig): Promise<void> 
   await invoke("apply_active_channel", { channel });
 }
 
+export type ApplyChannelOutcome =
+  | { status: "applied" }
+  | { status: "ccSwitchRunning"; pids: number[]; exePaths: string[] };
+
+// Apply with precheck: returns "ccSwitchRunning" without touching live files
+// when cc-switch is detected (unless force=true). The frontend prompts the
+// user, optionally calls closeCcSwitch, and re-invokes this function.
+export async function applyActiveChannelWithPrecheck(
+  channel: ChannelConfig,
+  force = false,
+): Promise<ApplyChannelOutcome> {
+  if (!isTauriRuntime()) return { status: "applied" };
+  return invoke<ApplyChannelOutcome>("apply_active_channel_with_precheck", { channel, force });
+}
+
+export async function detectCcSwitch(): Promise<{ pids: number[]; exePaths: string[] }> {
+  if (!isTauriRuntime()) return { pids: [], exePaths: [] };
+  return invoke<{ pids: number[]; exePaths: string[] }>("cc_switch_detect");
+}
+
+export async function closeCcSwitch(force: boolean): Promise<number> {
+  if (!isTauriRuntime()) return 0;
+  return invoke<number>("cc_switch_close", { force });
+}
+
 export async function readActiveSettings(): Promise<ActiveSettings | null> {
   if (!isTauriRuntime()) return null;
   return invoke<ActiveSettings>("read_active_settings");
+}
+
+export interface MatchResult {
+  channelId: string | null;
+  isExternal: boolean;
+}
+
+// Compare the on-disk live config snapshot against each saved channel's
+// toolConfigs and return the first channel that fully matches. If nothing
+// matches, isExternal is true so the UI can surface a "live config does not
+// belong to any saved channel" affordance. A channel matches only if every
+// (baseUrl, apiKey) pair lines up — empty pairs on both sides are
+// considered equal, but a populated pair on either side requires the other
+// side to also be populated and identical.
+export function matchActiveSettingsToChannel(
+  active: ActiveSettings | null,
+  channels: ChannelConfig[],
+): MatchResult {
+  if (!active) return { channelId: null, isExternal: false };
+  for (const channel of channels) {
+    if (channelMatchesActive(channel, active)) {
+      return { channelId: channel.id, isExternal: false };
+    }
+  }
+  return { channelId: null, isExternal: true };
+}
+
+function channelMatchesActive(channel: ChannelConfig, active: ActiveSettings): boolean {
+  const c = channel.toolConfigs;
+  if (!matchesPair(c.claude, active.claudeBaseUrl, active.claudeAuthToken ?? active.claudeApiKey)) return false;
+  if (!matchesPair(c.codex, active.codexBaseUrl, active.codexApiKey)) return false;
+  if (!matchesPair(c.gemini, active.geminiBaseUrl, active.geminiApiKey)) return false;
+  return true;
+}
+
+function matchesPair(
+  cfg: { baseUrl: string; apiKey: string },
+  diskUrl: string | null,
+  diskKey: string | null,
+): boolean {
+  const cfgEmpty = !cfg.baseUrl && !cfg.apiKey;
+  const diskEmpty = !diskUrl && !diskKey;
+  if (cfgEmpty && diskEmpty) return true;
+  if (cfgEmpty || diskEmpty) return false;
+  return cfg.baseUrl === diskUrl && cfg.apiKey === diskKey;
 }
 
 export function loadCurrentChannelId(): string | null {

@@ -5,11 +5,12 @@ import {
   loadLastConfirmedLaunch,
   loadRecentCwds,
   loadSession,
+  matchActiveSettingsToChannel,
   matchesLastConfirmedLaunch,
   pushRecentCwd,
   saveLastConfirmedLaunch,
 } from "./storage";
-import type { AuthSession } from "../types";
+import type { ActiveSettings, AuthSession, ChannelConfig } from "../types";
 
 const SESSION_KEY = "zm_tools_auth_session";
 const RECENT_CWDS_KEY = "zm_tools_recent_cwds";
@@ -140,5 +141,147 @@ describe("last-confirmed launch persistence", () => {
     saveLastConfirmedLaunch("codex", { modeId: "codex.dangerous", cwd: null });
     expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", null)).toBe(true);
     expect(matchesLastConfirmedLaunch("codex", "codex.dangerous", "")).toBe(false);
+  });
+});
+
+describe("matchActiveSettingsToChannel", () => {
+  function channel(
+    id: string,
+    overrides?: Partial<ChannelConfig["toolConfigs"]>,
+    isDefault = false,
+  ): ChannelConfig {
+    return {
+      id,
+      name: id,
+      isDefault,
+      toolConfigs: {
+        claude: { baseUrl: "", apiKey: "" },
+        codex: { baseUrl: "", apiKey: "" },
+        gemini: { baseUrl: "", apiKey: "" },
+        opencode: { baseUrl: "", apiKey: "" },
+        ...overrides,
+      },
+    };
+  }
+
+  function active(overrides: Partial<ActiveSettings> = {}): ActiveSettings {
+    return {
+      claudeBaseUrl: null,
+      claudeAuthToken: null,
+      claudeApiKey: null,
+      codexBaseUrl: null,
+      codexApiKey: null,
+      geminiBaseUrl: null,
+      geminiApiKey: null,
+      ...overrides,
+    };
+  }
+
+  it("returns the matching channel id when all three tools line up", () => {
+    const c = channel("c1", {
+      claude: { baseUrl: "https://anthropic.x", apiKey: "ka" },
+      codex: { baseUrl: "https://openai.x", apiKey: "kc" },
+      gemini: { baseUrl: "https://gemini.x", apiKey: "kg" },
+    });
+    const settings = active({
+      claudeBaseUrl: "https://anthropic.x",
+      claudeAuthToken: "ka",
+      codexBaseUrl: "https://openai.x",
+      codexApiKey: "kc",
+      geminiBaseUrl: "https://gemini.x",
+      geminiApiKey: "kg",
+    });
+    expect(matchActiveSettingsToChannel(settings, [c])).toEqual({
+      channelId: "c1",
+      isExternal: false,
+    });
+  });
+
+  it("falls back to claudeApiKey when claudeAuthToken is null", () => {
+    const c = channel("c1", {
+      claude: { baseUrl: "https://x", apiKey: "k" },
+    });
+    const settings = active({
+      claudeBaseUrl: "https://x",
+      claudeAuthToken: null,
+      claudeApiKey: "k",
+    });
+    expect(matchActiveSettingsToChannel(settings, [c]).channelId).toBe("c1");
+  });
+
+  it("returns isExternal when no channel matches", () => {
+    const c = channel("c1", {
+      claude: { baseUrl: "https://x", apiKey: "k" },
+    });
+    const settings = active({
+      claudeBaseUrl: "https://other",
+      claudeAuthToken: "k",
+    });
+    expect(matchActiveSettingsToChannel(settings, [c])).toEqual({
+      channelId: null,
+      isExternal: true,
+    });
+  });
+
+  it("rejects partial match where one tool diverges", () => {
+    const c = channel("c1", {
+      claude: { baseUrl: "https://x", apiKey: "k" },
+      codex: { baseUrl: "https://o", apiKey: "kc" },
+    });
+    const settings = active({
+      claudeBaseUrl: "https://x",
+      claudeAuthToken: "k",
+      codexBaseUrl: "https://o",
+      codexApiKey: "wrong",
+    });
+    expect(matchActiveSettingsToChannel(settings, [c]).channelId).toBeNull();
+  });
+
+  it("default channel (all empty) matches an empty live snapshot only", () => {
+    const def = channel("default", {}, true);
+    expect(matchActiveSettingsToChannel(active(), [def]).channelId).toBe("default");
+    expect(
+      matchActiveSettingsToChannel(active({ claudeBaseUrl: "https://x" }), [def]).channelId,
+    ).toBeNull();
+  });
+
+  it("returns no match for empty channel list with non-null active", () => {
+    expect(matchActiveSettingsToChannel(active({ claudeBaseUrl: "https://x" }), [])).toEqual({
+      channelId: null,
+      isExternal: true,
+    });
+  });
+
+  it("returns no-op for null active settings", () => {
+    expect(matchActiveSettingsToChannel(null, [channel("c1")])).toEqual({
+      channelId: null,
+      isExternal: false,
+    });
+  });
+
+  it("picks first matching channel when several match", () => {
+    const a = channel("a", { claude: { baseUrl: "https://x", apiKey: "k" } });
+    const b = channel("b", { claude: { baseUrl: "https://x", apiKey: "k" } });
+    const settings = active({ claudeBaseUrl: "https://x", claudeAuthToken: "k" });
+    expect(matchActiveSettingsToChannel(settings, [a, b]).channelId).toBe("a");
+  });
+
+  it("treats one-side-empty pair as mismatch", () => {
+    // Channel has claude configured, disk is blank → not a match.
+    const c = channel("c1", { claude: { baseUrl: "https://x", apiKey: "k" } });
+    expect(matchActiveSettingsToChannel(active(), [c]).channelId).toBeNull();
+    // Disk has codex, channel doesn't → not a match.
+    const d = channel("c2", { claude: { baseUrl: "https://x", apiKey: "k" } });
+    expect(
+      matchActiveSettingsToChannel(
+        active({
+          claudeBaseUrl: "https://x",
+          claudeAuthToken: "k",
+          codexBaseUrl: "https://o",
+          codexApiKey: "kc",
+        }),
+        [d],
+      ).channelId,
+    ).toBeNull();
   });
 });

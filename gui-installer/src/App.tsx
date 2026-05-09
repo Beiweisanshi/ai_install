@@ -1,8 +1,10 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { invoke } from "@tauri-apps/api/core";
+import { listen } from "@tauri-apps/api/event";
 
 import AuthPanel from "./components/AuthPanel";
 import BlockingProcessesModal from "./components/BlockingProcessesModal";
+import CcSwitchConflictDialog from "./components/CcSwitchConflictDialog";
 import Dashboard from "./components/Dashboard";
 import DetectSkeleton from "./components/DetectSkeleton";
 import Layout from "./components/Layout";
@@ -17,13 +19,15 @@ import {
   PUBLIC_BASE_URL,
 } from "./lib/backendApi";
 import {
-  applyActiveChannel,
+  applyActiveChannelWithPrecheck,
+  closeCcSwitch,
   clearSession,
   loadChannels,
   loadCurrentChannelId,
   loadPreferences,
   loadSession,
   loadToolKeySelections,
+  matchActiveSettingsToChannel,
   pushRecentCwd,
   readActiveSettings,
   saveChannels,
@@ -37,6 +41,7 @@ import { DEFAULT_TOOL_CONFIGS, keysForTool, TOOL_IDS } from "./lib/toolKeys";
 import { useInstaller } from "./hooks/useInstaller";
 import { useSmoothedProgress } from "./hooks/useSmoothedProgress";
 import type {
+  ActiveSettings,
   AiToolId,
   ApiKey,
   AppPhase,
@@ -62,6 +67,12 @@ function App() {
   const [channelError, setChannelError] = useState<string | null>(null);
   const [toast, setToast] = useState<{ kind: ToastKind; text: string } | null>(null);
   const [preferences, setPreferences] = useState(() => loadPreferences());
+  const [ccSwitchConflict, setCcSwitchConflict] = useState<{
+    pids: number[];
+    exePaths: string[];
+    pendingChannel: ChannelConfig;
+  } | null>(null);
+  const [ccSwitchClosing, setCcSwitchClosing] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -125,6 +136,47 @@ function App() {
     setCurrentChannelId("default");
   }, [currentChannelId, effectiveChannels]);
 
+  // Listen for live-config-changed events from the Rust fs watcher. Fires
+  // whenever ~/.claude/settings.json, ~/.codex/auth.json|config.toml, or
+  // ~/.gemini/.env is touched by an external writer (cc-switch, hand edits,
+  // etc.). The event is suppressed for ~1.5s after our own writes.
+  useEffect(() => {
+    let unlistenFn: (() => void) | null = null;
+    let cancelled = false;
+
+    const apply = (settings: ActiveSettings | null) => {
+      const match = matchActiveSettingsToChannel(settings, effectiveChannels);
+      if (match.channelId) {
+        setCurrentChannelId(match.channelId);
+        saveCurrentChannelId(match.channelId);
+      } else if (match.isExternal) {
+        setToast({ kind: "err", text: t("channel.externalDetected") });
+      }
+    };
+
+    // Immediate read once, so cc-switch changes that happened before we
+    // subscribed don't get lost.
+    void readActiveSettings()
+      .then((settings) => { if (!cancelled) apply(settings); })
+      .catch(() => {});
+
+    void listen<ActiveSettings>("live-config-changed", (event) => {
+      if (cancelled) return;
+      apply(event.payload);
+    }).then((fn) => {
+      if (cancelled) {
+        fn();
+      } else {
+        unlistenFn = fn;
+      }
+    }).catch(() => {});
+
+    return () => {
+      cancelled = true;
+      if (unlistenFn) unlistenFn();
+    };
+  }, [effectiveChannels]);
+
   // Drift check: if the on-disk Claude settings diverged from the active
   // custom channel (e.g. user edited settings.json by hand or another tool
   // wrote it), prompt to re-apply.
@@ -169,32 +221,72 @@ function App() {
     setProfile(null);
   };
 
+  // Try to activate a channel. Writes live config files unless cc-switch is
+  // detected, in which case it surfaces the conflict dialog and lets the user
+  // decide. Returns true on apply success, false on conflict pending or error.
+  const tryActivateChannel = useCallback(
+    async (channel: ChannelConfig, force = false): Promise<boolean> => {
+      try {
+        const result = await applyActiveChannelWithPrecheck(channel, force);
+        if (result.status === "ccSwitchRunning") {
+          setCcSwitchConflict({
+            pids: result.pids,
+            exePaths: result.exePaths,
+            pendingChannel: channel,
+          });
+          return false;
+        }
+        setCurrentChannelId(channel.id);
+        saveCurrentChannelId(channel.id);
+        setToast({ kind: "ok", text: t("channel.applied") });
+        return true;
+      } catch (e) {
+        setToast({ kind: "err", text: formatText("channel.applyFailed", { detail: normalizeError(e) }) });
+        return false;
+      }
+    },
+    [],
+  );
+
   const handleSaveChannel = async (channel: ChannelConfig) => {
     const normalized = normalizeChannel(channel);
     const next = upsertChannel(channels, normalized);
     setChannels(next);
-    setCurrentChannelId(normalized.id);
-    saveCurrentChannelId(normalized.id);
-    try {
-      await applyActiveChannel(normalized);
-      setToast({ kind: "ok", text: t("channel.applied") });
-    } catch (e) {
-      setToast({ kind: "err", text: formatText("channel.applyFailed", { detail: normalizeError(e) }) });
-    }
+    await tryActivateChannel(normalized);
   };
 
   const handleSwitchChannel = async (id: string) => {
-    setCurrentChannelId(id);
-    saveCurrentChannelId(id);
     const target = effectiveChannels.find((channel) => channel.id === id);
     if (!target) return;
-    try {
-      await applyActiveChannel(target);
-      setToast({ kind: "ok", text: t("channel.applied") });
-    } catch (e) {
-      setToast({ kind: "err", text: formatText("channel.applyFailed", { detail: normalizeError(e) }) });
-    }
+    await tryActivateChannel(target);
   };
+
+  const handleCcSwitchCloseAndContinue = useCallback(async () => {
+    if (!ccSwitchConflict) return;
+    const pending = ccSwitchConflict.pendingChannel;
+    setCcSwitchClosing(true);
+    try {
+      await closeCcSwitch(false);
+    } catch (e) {
+      setToast({ kind: "err", text: formatText("channel.ccSwitchCloseFailed", { detail: normalizeError(e) }) });
+      setCcSwitchClosing(false);
+      return;
+    }
+    setCcSwitchClosing(false);
+    setCcSwitchConflict(null);
+    await tryActivateChannel(pending);
+  }, [ccSwitchConflict, tryActivateChannel]);
+
+  const handleCcSwitchForceWrite = useCallback(async () => {
+    if (!ccSwitchConflict) return;
+    const pending = ccSwitchConflict.pendingChannel;
+    setCcSwitchConflict(null);
+    await tryActivateChannel(pending, true);
+  }, [ccSwitchConflict, tryActivateChannel]);
+
+  const handleCcSwitchCancel = useCallback(() => {
+    setCcSwitchConflict(null);
+  }, []);
 
   const handleDeleteChannel = (id: string) => {
     const channel = channels.find((item) => item.id === id);
@@ -385,6 +477,17 @@ function App() {
       )}
 
       {toast && <Toast kind={toast.kind} text={toast.text} onDismiss={dismissToast} />}
+
+      {ccSwitchConflict && (
+        <CcSwitchConflictDialog
+          pids={ccSwitchConflict.pids}
+          exePaths={ccSwitchConflict.exePaths}
+          closing={ccSwitchClosing}
+          onCloseAndContinue={handleCcSwitchCloseAndContinue}
+          onForceWrite={handleCcSwitchForceWrite}
+          onCancel={handleCcSwitchCancel}
+        />
+      )}
     </Layout>
   );
 

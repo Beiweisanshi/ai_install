@@ -68,6 +68,15 @@ docker compose -f docker-compose.yml up -d   # 用预构建镜像 weishaw/sub2ap
 
 调整 cc-switch 安装/检测逻辑（`installer/windows.rs`、`installer/detect.rs`、`commands.rs::npm_pkg_for_tool`）前，去 cc-switch 仓库看它当前的发布形态（npm 包名、二进制名）— 这个映射不是 ai_install 自己定义的。
 
+### cc-switch 配置同步（L1 零侵入）
+
+两侧 channel/provider 列表各自独立持久化（本工程 localStorage、cc-switch SQLite），但**写同一组 live 文件**且字段名 schema 完全对齐：`~/.claude/settings.json`（`env.ANTHROPIC_AUTH_TOKEN` / `env.ANTHROPIC_BASE_URL`）、`~/.codex/auth.json + config.toml`、`~/.gemini/.env`。同步通道：
+
+- **反向**（cc-switch 改 → 本工程感知）：Rust `live_watcher` 用 `notify-debouncer-mini` 监 4 个 live 文件父目录，500ms debounce 后调 `read_active_settings` + `app.emit("live-config-changed", ...)`；前端比对 `matchActiveSettingsToChannel`，匹配则高亮对应 channel，否则 toast `channel.externalDetected`
+- **正向**（本工程 apply → cc-switch UI）：cc-switch 没有 fs watcher / IPC，所以**做不到自动同步**。本工程在 `apply_active_channel_with_precheck` 入口先 `cc_switch_proc::detect()`，发现进程在跑就返回 `CcSwitchRunning` 让前端弹 `CcSwitchConflictDialog`。用户三选：关闭并继续（graceful + 1500ms grace + 必要时 force kill）、强制写入（带二次确认；接受 cc-switch 后续切换会覆盖）、取消
+- **自写过滤**：`live_watcher::mark_self_write` 在 apply 完成后置时间戳；watcher 触发时若 `now - last_self_write < 1500ms` 跳过 emit，避免 apply→watch→apply 循环
+- **不动 cc-switch.db**：cc-switch SCHEMA 升级时本工程不需跟，但代价是 cc-switch 里看不到本工程新建的 channel
+
 ## 构建（关键约束 — 来自 AGENTS.md）
 
 ### Windows

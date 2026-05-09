@@ -1,9 +1,11 @@
 mod backend;
+mod cc_switch_proc;
 mod channel_config;
 mod commands;
 mod config;
 mod fs_util;
 mod installer;
+mod live_watcher;
 mod secure_store;
 mod terminal;
 mod types;
@@ -30,6 +32,13 @@ pub fn run() {
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .setup(|app| {
+            // File-system watcher: emits "live-config-changed" when an
+            // external writer (cc-switch, hand edits, etc.) touches one of
+            // the live config files we manage. Failure is non-fatal.
+            if let Err(e) = live_watcher::setup(app.handle().clone()) {
+                eprintln!("[lib] live_watcher setup failed: {e}");
+            }
+
             let Some(tools) = autorun_tools() else {
                 return Ok(());
             };
@@ -73,6 +82,9 @@ pub fn run() {
             commands::install_tools,
             commands::save_config,
             commands::apply_active_channel,
+            commands::apply_active_channel_with_precheck,
+            commands::cc_switch_detect,
+            commands::cc_switch_close,
             commands::read_active_settings,
             commands::get_app_version_info,
             commands::list_blocking_processes,

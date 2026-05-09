@@ -347,19 +347,19 @@ fn home() -> Result<PathBuf, String> {
     dirs::home_dir().ok_or_else(|| "could not determine home directory".to_string())
 }
 
-fn claude_settings_path() -> Result<PathBuf, String> {
+pub(crate) fn claude_settings_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".claude").join("settings.json"))
 }
 
-fn codex_auth_path() -> Result<PathBuf, String> {
+pub(crate) fn codex_auth_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".codex").join("auth.json"))
 }
 
-fn codex_config_path() -> Result<PathBuf, String> {
+pub(crate) fn codex_config_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".codex").join("config.toml"))
 }
 
-fn gemini_env_path() -> Result<PathBuf, String> {
+pub(crate) fn gemini_env_path() -> Result<PathBuf, String> {
     Ok(home()?.join(".gemini").join(".env"))
 }
 

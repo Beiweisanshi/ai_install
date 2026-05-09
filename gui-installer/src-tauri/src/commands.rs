@@ -1,16 +1,19 @@
 use std::collections::HashSet;
 
+use serde::Serialize;
 use tauri::AppHandle;
 
-use crate::config;
+use crate::backend::{BackendRequest, BackendResponse};
+use crate::cc_switch_proc::{self, CcSwitchProcInfo};
 use crate::channel_config::{self, ActiveSettings, ChannelPayload};
+use crate::config;
 use crate::installer::{self, ToolInstaller};
+use crate::live_watcher;
 use crate::types::{
     AppVersionInfo, ConfigEntry, DetectResult, EnvVar, EnvVarInfo, InstallResult, InstallerError,
     PrecheckResult, RunningProc,
 };
 use crate::version;
-use crate::backend::{BackendRequest, BackendResponse};
 
 #[cfg(target_os = "macos")]
 use crate::installer::macos::{GitInstallerMac, NodeInstallerMac, NushellInstallerMac};
@@ -70,7 +73,65 @@ pub async fn save_config(entries: Vec<ConfigEntry>) -> Result<(), String> {
 
 #[tauri::command]
 pub async fn apply_active_channel(channel: ChannelPayload) -> Result<(), String> {
-    channel_config::apply_active_channel(channel)
+    let result = channel_config::apply_active_channel(channel);
+    if result.is_ok() {
+        live_watcher::mark_self_write();
+    }
+    result
+}
+
+#[derive(Debug, Serialize)]
+#[serde(tag = "status", rename_all = "camelCase")]
+pub enum ApplyChannelOutcome {
+    Applied,
+    CcSwitchRunning {
+        pids: Vec<u32>,
+        exe_paths: Vec<String>,
+    },
+}
+
+/// Apply a channel after first checking whether cc-switch is running.
+/// When `force` is false and cc-switch is detected, returns
+/// `CcSwitchRunning` so the frontend can prompt; otherwise writes the live
+/// files and returns `Applied`.
+#[tauri::command]
+pub async fn apply_active_channel_with_precheck(
+    channel: ChannelPayload,
+    force: bool,
+) -> Result<ApplyChannelOutcome, String> {
+    if !force {
+        let info = cc_switch_proc::detect();
+        if !info.pids.is_empty() {
+            return Ok(ApplyChannelOutcome::CcSwitchRunning {
+                pids: info.pids,
+                exe_paths: info.exe_paths,
+            });
+        }
+    }
+    channel_config::apply_active_channel(channel)?;
+    live_watcher::mark_self_write();
+    Ok(ApplyChannelOutcome::Applied)
+}
+
+#[tauri::command]
+pub async fn cc_switch_detect() -> Result<CcSwitchProcInfo, String> {
+    Ok(cc_switch_proc::detect())
+}
+
+/// Close cc-switch. When `force` is false, attempts a graceful close with a
+/// 1500ms grace period before escalating to a force kill on any survivors.
+/// Returns the number of PIDs successfully terminated.
+#[tauri::command]
+pub async fn cc_switch_close(force: bool) -> Result<usize, String> {
+    let info = cc_switch_proc::detect();
+    if info.pids.is_empty() {
+        return Ok(0);
+    }
+    if force {
+        Ok(cc_switch_proc::force_kill(&info.pids))
+    } else {
+        Ok(cc_switch_proc::close_with_grace_period(&info.pids, 1500))
+    }
 }
 
 #[tauri::command]
